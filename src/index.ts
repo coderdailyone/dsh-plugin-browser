@@ -38,6 +38,8 @@ export const Config = z.object({
   headless: z.boolean().default(true).description('Run Chromium without a visible window. Default true.'),
   executablePath: z.string().description('Explicit Chromium executable. Falls back to $DSH_BROWSER_EXECUTABLE, then Playwright resolution.'),
   userAgent: z.string().description('User-Agent for the browser context. Defaults to "dsh-plugin-browser-use/<version>".'),
+  proxyServer: z.string().description('Proxy for browser traffic, e.g. "http://127.0.0.1:7890" or "socks5://127.0.0.1:1080". Chromium ignores $http_proxy-style env vars, so set this (or $DSH_BROWSER_PROXY) when the machine needs a proxy. Unset = direct connection.'),
+  proxyBypass: z.string().description('Comma-separated hosts that bypass the proxy, e.g. "localhost,127.0.0.1".'),
   navigationTimeoutMs: z.number().step(1).min(1).default(DEFAULT_NAVIGATION_TIMEOUT_MS).description('Navigation timeout in milliseconds. Default 30000.'),
   actionTimeoutMs: z.number().step(1).min(1).default(DEFAULT_ACTION_TIMEOUT_MS).description('Click/fill/read timeout in milliseconds. Default 15000.'),
   maxTextChars: z.number().step(1).min(1).default(DEFAULT_MAX_TEXT_CHARS).description('Upper bound on returned page text, in characters. Default 20000.'),
@@ -98,6 +100,8 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
     headless: resolved.headless,
     ...resolved.executablePath !== undefined ? { executablePath: resolved.executablePath } : {},
     userAgent: resolved.userAgent,
+    ...config.proxyServer !== undefined ? { proxyServer: config.proxyServer } : {},
+    ...config.proxyBypass !== undefined ? { proxyBypass: config.proxyBypass } : {},
   })
   const registry = new BrowserSessions(() =>
     new BrowserSession(backend, {

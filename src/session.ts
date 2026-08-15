@@ -30,6 +30,18 @@ export interface PageHandle {
   evaluate<T>(fn: string): Promise<T>
 }
 
+/**
+ * Cut `text` at `maxChars` characters without splitting a surrogate pair: when
+ * the cut would land inside an astral character (emoji, rare CJK), the cut
+ * moves left so the result never ends in a lone high surrogate.
+ */
+export function truncateText(text: string, maxChars: number): { text: string; truncated: boolean } {
+  if (text.length <= maxChars) return { text, truncated: false }
+  let end = maxChars
+  while (end > 0 && (text.charCodeAt(end) & 0xfc00) === 0xdc00) end -= 1
+  return { text: text.slice(0, end), truncated: true }
+}
+
 /** A structured error the tool maps to a model-facing `isError` result. */
 export class BrowserError extends Error {
   constructor(message: string, readonly code: string, options?: { cause?: unknown }) {
@@ -155,12 +167,12 @@ export class BrowserSession {
       throw new BrowserError(`text extraction failed: ${String(error)}`, 'BROWSER_ACTION_FAILED', { cause: error })
     }
     const normalized = raw.replace(/\n{3,}/g, '\n\n').trim()
-    const truncated = normalized.length > this.config.maxTextChars
+    const bounded = truncateText(normalized, this.config.maxTextChars)
     return {
       url: page.url(),
       title,
-      text: truncated ? normalized.slice(0, this.config.maxTextChars) : normalized,
-      truncated,
+      text: bounded.text,
+      truncated: bounded.truncated,
     }
   }
 

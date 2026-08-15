@@ -7,7 +7,9 @@
  * @module dsh-plugin-browser-use/playwright-backend
  */
 
-import { existsSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { BrowserBackend, BrowserHandle, PageHandle } from './session.js'
 
 /** Resolved launch options for the Chromium backend. */
@@ -18,6 +20,44 @@ export interface PlaywrightBackendOptions {
   executablePath?: string
   /** User-Agent sent by the browser context. */
   userAgent: string
+  /** Proxy for all browser traffic (Chromium ignores `$http_proxy`-style env). Unset falls back to `$DSH_BROWSER_PROXY`, then direct connection. */
+  proxyServer?: string
+  /** Comma-separated hosts that bypass the proxy. */
+  proxyBypass?: string
+}
+
+/**
+ * Resolve the browser proxy: explicit config wins, else `$DSH_BROWSER_PROXY`,
+ * else direct connection. Bypass only ever comes from config — an env fallback
+ * for the server must not silently drop a configured bypass list.
+ */
+export function resolveProxy(
+  configured: { server?: string; bypass?: string },
+  env: NodeJS.ProcessEnv,
+): { server: string; bypass?: string } | undefined {
+  const fromEnv = env.DSH_BROWSER_PROXY
+  const server = configured.server !== undefined && configured.server.length > 0
+    ? configured.server
+    : fromEnv !== undefined && fromEnv.length > 0 ? fromEnv : undefined
+  if (server === undefined) return undefined
+  return { server, ...configured.bypass !== undefined ? { bypass: configured.bypass } : {} }
+}
+
+/**
+ * Environment for the browser process: the caller's env with `HOME` and the
+ * XDG dirs pointed into a private per-launch directory, so Chromium's profile,
+ * crashpad, and caches never touch the operator's real home.
+ */
+export function buildLaunchEnv(base: NodeJS.ProcessEnv, privateHome: string): Record<string, string> {
+  const env: Record<string, string> = {}
+  for (const [key, value] of Object.entries(base)) {
+    if (value !== undefined) env[key] = value
+  }
+  env.HOME = privateHome
+  env.XDG_CONFIG_HOME = join(privateHome, '.config')
+  env.XDG_CACHE_HOME = join(privateHome, '.cache')
+  env.XDG_DATA_HOME = join(privateHome, '.local', 'share')
+  return env
 }
 
 /** Well-known Chromium-family locations per platform, most stable first. */
@@ -63,9 +103,18 @@ export class PlaywrightBackend implements BrowserBackend {
 
   async launch(): Promise<BrowserHandle> {
     const executablePath = resolveExecutable(this.options.executablePath)
+    const proxy = resolveProxy({
+      ...this.options.proxyServer !== undefined ? { server: this.options.proxyServer } : {},
+      ...this.options.proxyBypass !== undefined ? { bypass: this.options.proxyBypass } : {},
+    }, process.env)
+    // Private per-launch HOME/XDG so profile, crashpad, and caches stay out of
+    // the operator's real home; removed when this handle closes.
+    const privateHome = mkdtempSync(join(tmpdir(), 'dsh-browser-use-'))
     const { chromium } = await import('playwright-core')
     const browser = await chromium.launch({
       headless: this.options.headless,
+      env: buildLaunchEnv(process.env, privateHome),
+      ...proxy !== undefined ? { proxy } : {},
       ...executablePath !== undefined ? { executablePath } : {},
     })
     const context = await browser.newContext({ userAgent: this.options.userAgent })
@@ -82,7 +131,11 @@ export class PlaywrightBackend implements BrowserBackend {
         }
       },
       async close(): Promise<void> {
-        await browser.close()
+        try {
+          await browser.close()
+        } finally {
+          rmSync(privateHome, { recursive: true, force: true })
+        }
       },
     }
   }
