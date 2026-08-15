@@ -1,4 +1,4 @@
-# dsh-plugin-browser
+# dsh-plugin-browser-use
 
 一个 [DeepSeek Harness](https://github.com/deepseek-ai/dsh) 插件：通过 `playwright-core` 驱动 Chromium，为模型提供五个真实浏览器工具 —— 导航、点击、填充、读文本、关闭。
 
@@ -6,11 +6,17 @@
 
 [English](./README.md)
 
+## 名字、渊源与非关联声明
+
+本项目**与 [browser-use](https://github.com/browser-use/browser-use) 项目及公司没有任何关联**,底层通过 `playwright-core` 直接驱动 Chromium,不包含任何 browser-use 代码。
+
+取这个名字是认领一段渊源:本插件的安全核心,正是作者对浏览器 agent 导航策略漏洞研究的正面应用——其中包括报告给 browser-use 的 Critical 级 `allowed_domains` 绕过漏洞(GHSA-c82q-c8wq-834v,署名 coderdailyone)。这里的策略设计(host 标签匹配、每次导航后连续复查、解析失败即拒)就是那项研究得出的"浏览器 agent 应该怎么做"。
+
 ## 安装
 
 ```bash
-dsh plugin --profile web add @codemycookieday/dsh-plugin-browser
-dsh --profile web --dump-config   # 应能看到 "# == dsh-plugin-browser" 补丁层
+dsh plugin --profile web add dsh-plugin-browser-use
+dsh --profile web --dump-config   # 应能看到 "# == dsh-plugin-browser-use" 补丁层
 ```
 
 需要一个 Chromium，按以下顺序解析：
@@ -28,7 +34,7 @@ dsh --profile web --dump-config   # 应能看到 "# == dsh-plugin-browser" 补�
 | `allowPrivateNetwork` | `boolean` | `false` | 是否放行环回 / 私有 / 链路本地地址。默认关闭。 |
 | `headless` | `boolean` | `true` | 无窗口运行。 |
 | `executablePath` | `string` | — | 显式指定 Chromium 路径。回退顺序：`$DSH_BROWSER_EXECUTABLE` → 系统常见位置 → Playwright。 |
-| `userAgent` | `string` | `dsh-plugin-browser/<版本>` | 浏览器上下文的 User-Agent。 |
+| `userAgent` | `string` | `dsh-plugin-browser-use/<版本>` | 浏览器上下文的 User-Agent。 |
 | `navigationTimeoutMs` | `≥1 整数` | `30000` | 每次导航的加载预算。 |
 | `actionTimeoutMs` | `≥1 整数` | `15000` | 每次点击 / 填充 / 读取的预算。 |
 | `maxTextChars` | `≥1 整数` | `20000` | 提取页面文本的硬上限。 |

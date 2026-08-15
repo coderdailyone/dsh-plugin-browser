@@ -1,11 +1,11 @@
 /**
- * `dsh-plugin-browser`: browser-automation tools for the DeepSeek Harness.
+ * `dsh-plugin-browser-use`: browser-automation tools for the DeepSeek Harness.
  * Registers five model-facing tools (`browser_navigate`, `browser_click`,
  * `browser_fill`, `browser_read_text`, `browser_close`) into `ctx.tools`,
  * backed by Chromium through `playwright-core`. The differentiator is a
  * security-first navigation policy (host-label allowlist + private-network
  * block) re-checked on every action, not once at open.
- * @module dsh-plugin-browser
+ * @module dsh-plugin-browser-use
  */
 
 import z from '@deepseek-ai/schemastery'
@@ -15,13 +15,13 @@ import { BrowserSession } from './session.js'
 import { BrowserSessions, createBrowserTools } from './tool.js'
 
 /** Cordis plugin name used by loader diagnostics. */
-export const name = 'dsh-plugin-browser'
+export const name = 'dsh-plugin-browser-use'
 
 /** Services required by the browser tool suite. */
 export const inject = ['tools']
 
 /** Plugin version stamped into the default User-Agent. Keep in lockstep with package.json. */
-const VERSION = '0.1.0'
+const VERSION = '0.2.0'
 
 /** Default bound on one returned page text (the `maxTextChars` config). */
 export const DEFAULT_MAX_TEXT_CHARS = 20_000
@@ -37,7 +37,7 @@ export const Config = z.object({
   allowPrivateNetwork: z.boolean().default(false).description('Permit loopback/private/link-local http(s) targets. Default false.'),
   headless: z.boolean().default(true).description('Run Chromium without a visible window. Default true.'),
   executablePath: z.string().description('Explicit Chromium executable. Falls back to $DSH_BROWSER_EXECUTABLE, then Playwright resolution.'),
-  userAgent: z.string().description('User-Agent for the browser context. Defaults to "dsh-plugin-browser/<version>".'),
+  userAgent: z.string().description('User-Agent for the browser context. Defaults to "dsh-plugin-browser-use/<version>".'),
   navigationTimeoutMs: z.number().step(1).min(1).default(DEFAULT_NAVIGATION_TIMEOUT_MS).description('Navigation timeout in milliseconds. Default 30000.'),
   actionTimeoutMs: z.number().step(1).min(1).default(DEFAULT_ACTION_TIMEOUT_MS).description('Click/fill/read timeout in milliseconds. Default 15000.'),
   maxTextChars: z.number().step(1).min(1).default(DEFAULT_MAX_TEXT_CHARS).description('Upper bound on returned page text, in characters. Default 20000.'),
@@ -52,10 +52,10 @@ function assertValidConfig(config: ResolvedConfig): void {
     ['actionTimeoutMs', config.actionTimeoutMs],
     ['maxTextChars', config.maxTextChars],
   ] as const) {
-    if (!Number.isInteger(value) || value < 1) throw new Error(`dsh-plugin-browser: ${key} must be a positive integer`)
+    if (!Number.isInteger(value) || value < 1) throw new Error(`dsh-plugin-browser-use: ${key} must be a positive integer`)
   }
   if (config.allowedHosts.some(pattern => pattern.trim().length === 0)) {
-    throw new Error('dsh-plugin-browser: allowedHosts entries must be non-empty host labels')
+    throw new Error('dsh-plugin-browser-use: allowedHosts entries must be non-empty host labels')
   }
 }
 
@@ -89,7 +89,7 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
     },
     headless: config.headless ?? true,
     executablePath: config.executablePath ?? process.env.DSH_BROWSER_EXECUTABLE,
-    userAgent: config.userAgent ?? `dsh-plugin-browser/${VERSION}`,
+    userAgent: config.userAgent ?? `dsh-plugin-browser-use/${VERSION}`,
     navigationTimeoutMs: config.navigationTimeoutMs ?? DEFAULT_NAVIGATION_TIMEOUT_MS,
     actionTimeoutMs: config.actionTimeoutMs ?? DEFAULT_ACTION_TIMEOUT_MS,
     maxTextChars: config.maxTextChars ?? DEFAULT_MAX_TEXT_CHARS,

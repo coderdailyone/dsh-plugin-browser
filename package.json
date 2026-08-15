@@ -1,6 +1,6 @@
 {
-  "name": "@codemycookieday/dsh-plugin-browser",
-  "version": "0.1.1",
+  "name": "dsh-plugin-browser-use",
+  "version": "0.2.0",
   "description": "Browser-automation tools for DeepSeek Harness (dsh): Chromium via playwright-core behind a security-first navigation policy re-checked on every action",
   "type": "module",
   "main": "lib/index.js",
@@ -38,6 +38,7 @@
   },
   "keywords": [
     "dsh-plugin",
+    "browser-use",
     "deepseek-harness",
     "dsh",
     "browser",
@@ -51,7 +52,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/coderdailyone/dsh-plugin-browser.git"
+    "url": "git+https://github.com/coderdailyone/dsh-plugin-browser-use.git"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",

@@ -1,5 +1,5 @@
 /**
- * The security gate for dsh-plugin-browser: exhaustive tests over the
+ * The security gate for dsh-plugin-browser-use: exhaustive tests over the
  * navigation policy. Every security rule the plugin's headline claim rests on
  * is pinned here with dedicated fail-before cases — mutate `hostMatches` to a
  * substring `includes` and the lookalike block goes red (verified during

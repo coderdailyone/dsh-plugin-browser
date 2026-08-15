@@ -59,7 +59,7 @@ function backend(): PlaywrightBackend {
   return new PlaywrightBackend({
     headless: true,
     ...(executable !== undefined ? { executablePath: executable } : {}),
-    userAgent: 'dsh-plugin-browser/live-test',
+    userAgent: 'dsh-plugin-browser-use/live-test',
   })
 }
 

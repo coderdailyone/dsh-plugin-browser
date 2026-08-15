@@ -1,4 +1,4 @@
-# The dsh-plugin-browser bundle patch: one insert adding the browser tool
+# The dsh-plugin-browser-use bundle patch: one insert adding the browser tool
 # plugin row over the profile's existing layers (e.g. dsh-base). Later layers
 # and the user's profile cordis.patch.yml can target this row by id `browser`
 # (last write wins per row).
@@ -10,4 +10,4 @@
 
 - insert:
     - id: browser
-      name: 'dsh-plugin-browser'
+      name: 'dsh-plugin-browser-use'

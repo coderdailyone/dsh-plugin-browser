@@ -4,7 +4,7 @@
  * never a one-time substring match, because a model that can navigate can also
  * follow a link, submit a form, or trigger a redirect to somewhere the initial
  * check never saw.
- * @module dsh-plugin-browser/policy
+ * @module dsh-plugin-browser-use/policy
  */
 
 /** Resolved navigation policy applied to every URL the browser is asked to reach. */

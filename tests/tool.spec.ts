@@ -146,7 +146,7 @@ describe('plugin composition', () => {
       expect(names, expected).toContain(expected)
     }
     expect(plugin.inject).toEqual(['tools'])
-    expect(plugin.name).toBe('dsh-plugin-browser')
+    expect(plugin.name).toBe('dsh-plugin-browser-use')
     await fiber.dispose()
   })
 

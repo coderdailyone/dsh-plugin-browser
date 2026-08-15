@@ -4,7 +4,7 @@
  * stay testable without a real browser. Playwright is loaded lazily on first
  * launch, so composing the plugin never pays the import cost until the model
  * actually opens a page.
- * @module dsh-plugin-browser/playwright-backend
+ * @module dsh-plugin-browser-use/playwright-backend
  */
 
 import { existsSync } from 'node:fs'

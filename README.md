@@ -1,4 +1,4 @@
-# dsh-plugin-browser
+# dsh-plugin-browser-use
 
 A [DeepSeek Harness](https://github.com/deepseek-ai/dsh) plugin that gives the model five real-browser tools — navigate, click, fill, read text, close — backed by Chromium through `playwright-core`.
 
@@ -6,11 +6,17 @@ Its differentiator is a **security-first navigation policy**: every URL is re-ch
 
 [中文文档](./README.zh.md)
 
+## The name, its lineage, and non-affiliation
+
+This project is **not affiliated with the [browser-use](https://github.com/browser-use/browser-use) project or company**. Under the hood it drives Chromium directly through `playwright-core`; no browser-use code is involved.
+
+The name claims a lineage instead. This plugin's security core is the positive application of its author's vulnerability research into browser-agent navigation policies — including the Critical-severity `allowed_domains` bypass reported against browser-use (GHSA-c82q-c8wq-834v, credited to coderdailyone). The policy here (host-label matching, continuous re-checks after every navigation, fail-closed parsing) is what that research concluded a browser agent should be doing.
+
 ## Install
 
 ```bash
-dsh plugin --profile web add @codemycookieday/dsh-plugin-browser
-dsh --profile web --dump-config   # should show the "# == dsh-plugin-browser" layer
+dsh plugin --profile web add dsh-plugin-browser-use
+dsh --profile web --dump-config   # should show the "# == dsh-plugin-browser-use" layer
 ```
 
 A Chromium is required. The plugin resolves one in this order:
@@ -28,7 +34,7 @@ A Chromium is required. The plugin resolves one in this order:
 | `allowPrivateNetwork` | `boolean` | `false` | Permit loopback / private / link-local targets. Off by default. |
 | `headless` | `boolean` | `true` | Run without a window. |
 | `executablePath` | `string` | — | Explicit Chromium binary. Falls back to `$DSH_BROWSER_EXECUTABLE`, OS locations, then Playwright. |
-| `userAgent` | `string` | `dsh-plugin-browser/<version>` | User-Agent for the browser context. |
+| `userAgent` | `string` | `dsh-plugin-browser-use/<version>` | User-Agent for the browser context. |
 | `navigationTimeoutMs` | `int ≥ 1` | `30000` | Page-load budget per navigation. |
 | `actionTimeoutMs` | `int ≥ 1` | `15000` | Budget per click / fill / read. |
 | `maxTextChars` | `int ≥ 1` | `20000` | Hard bound on extracted page text. |

@@ -4,7 +4,7 @@
  * navigation and torn down with the plugin fiber. Every operation re-checks the
  * navigation policy — a page can be steered to a new origin by a link or a
  * redirect, so the allowlist is enforced continuously, not once at `open`.
- * @module dsh-plugin-browser/session
+ * @module dsh-plugin-browser-use/session
  */
 
 import { evaluateUrl, describeDenial, type NavigationPolicy } from './policy.js'

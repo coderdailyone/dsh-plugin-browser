@@ -6,7 +6,7 @@
  * a programmatic object (`url`/`title`/`statusCode`/`text`/`truncated`), so
  * Code Mode reaches the fields for free; `output.render` writes the
  * human/model-facing text.
- * @module dsh-plugin-browser/tool
+ * @module dsh-plugin-browser-use/tool
  */
 
 import { defineTool, type ToolDefinition } from '@deepseek-ai/dsh-tools'
