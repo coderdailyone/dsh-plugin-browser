@@ -25,7 +25,6 @@ export interface PageHandle {
   goto(url: string, options: { waitUntil: 'load' | 'domcontentloaded'; timeout: number }): Promise<{ status(): number } | null>
   url(): string
   title(): Promise<string>
-  content(): Promise<string>
   click(selector: string, options: { timeout: number }): Promise<void>
   fill(selector: string, value: string, options: { timeout: number }): Promise<void>
   evaluate<T>(fn: string): Promise<T>
@@ -34,7 +33,7 @@ export interface PageHandle {
 /** A structured error the tool maps to a model-facing `isError` result. */
 export class BrowserError extends Error {
   constructor(message: string, readonly code: string, options?: { cause?: unknown }) {
-    super(message, options)
+    super(`${code}: ${message}`, options)
     this.name = 'BrowserError'
   }
 }
@@ -44,6 +43,12 @@ export interface ActionOutcome {
   readonly url: string
   readonly title: string
   readonly statusCode?: number
+}
+
+/** A full read of the current page: where it landed plus its bounded text. */
+export interface PageReading extends ActionOutcome {
+  readonly text: string
+  readonly truncated: boolean
 }
 
 /** Resolved session tunables. */
@@ -106,33 +111,43 @@ export class BrowserSession {
     return { url: page.url(), title: await page.title(), ...response !== null ? { statusCode: response.status() } : {} }
   }
 
-  /** Click a selector, then re-assert the resulting URL against the policy. */
+  /** Click a selector, refusing to interact with an off-policy page, then re-assert the landed URL. */
   async click(selector: string): Promise<ActionOutcome> {
     const page = this.requirePage()
+    // Refuse to interact at all with a page scripted onto a disallowed host,
+    // then re-check after the click (it may itself navigate).
+    this.enforceInteractive(page)
     try {
       await page.click(selector, { timeout: this.config.actionTimeoutMs })
     } catch (error: unknown) {
       throw new BrowserError(`click on ${selector} failed: ${String(error)}`, 'BROWSER_ACTION_FAILED', { cause: error })
     }
     this.enforce(page.url())
-    return { url: page.url(), title: await page.title() }
+    return { url: page.url(), title: await this.readTitle() }
   }
 
-  /** Fill a form field by selector. */
+  /** Fill a form field by selector, with the same pre- and post-action checks. */
   async fill(selector: string, value: string): Promise<ActionOutcome> {
     const page = this.requirePage()
+    this.enforceInteractive(page)
     try {
       await page.fill(selector, value, { timeout: this.config.actionTimeoutMs })
     } catch (error: unknown) {
       throw new BrowserError(`fill on ${selector} failed: ${String(error)}`, 'BROWSER_ACTION_FAILED', { cause: error })
     }
     this.enforce(page.url())
-    return { url: page.url(), title: await page.title() }
+    return { url: page.url(), title: await this.readTitle() }
   }
 
-  /** Extract the current page's visible text, bounded to `maxTextChars`. */
-  async extractText(): Promise<{ text: string; truncated: boolean }> {
+  /**
+   * Re-read the current page: its landed URL (re-checked against the policy —
+   * page JS may have navigated since the last action), its title, and its
+   * visible text bounded to `maxTextChars`.
+   */
+  async readText(): Promise<PageReading> {
     const page = this.requirePage()
+    this.enforceInteractive(page)
+    const title = await this.readTitle()
     let raw: string
     try {
       raw = await page.evaluate<string>('document.body ? document.body.innerText : ""')
@@ -140,13 +155,35 @@ export class BrowserSession {
       throw new BrowserError(`text extraction failed: ${String(error)}`, 'BROWSER_ACTION_FAILED', { cause: error })
     }
     const normalized = raw.replace(/\n{3,}/g, '\n\n').trim()
-    if (normalized.length <= this.config.maxTextChars) return { text: normalized, truncated: false }
-    return { text: normalized.slice(0, this.config.maxTextChars), truncated: true }
+    const truncated = normalized.length > this.config.maxTextChars
+    return {
+      url: page.url(),
+      title,
+      text: truncated ? normalized.slice(0, this.config.maxTextChars) : normalized,
+      truncated,
+    }
+  }
+
+  private async readTitle(): Promise<string> {
+    try {
+      return await this.requirePage().title()
+    } catch (error: unknown) {
+      throw new BrowserError(`title read failed: ${String(error)}`, 'BROWSER_ACTION_FAILED', { cause: error })
+    }
   }
 
   private requirePage(): PageHandle {
+    if (this.closing !== undefined) throw new BrowserError('browser session is closing', 'BROWSER_CLOSED')
     if (this.page === undefined) throw new BrowserError('no page open; navigate first', 'BROWSER_NO_PAGE')
     return this.page
+  }
+
+  /** A page that exists but never landed a real navigation (about:blank) is not yet usable. */
+  private enforceInteractive(page: PageHandle): void {
+    if (page.url() === 'about:blank') {
+      throw new BrowserError('no page open; navigate first', 'BROWSER_NO_PAGE')
+    }
+    this.enforce(page.url())
   }
 
   /** Idempotently close the browser, awaiting the backend's teardown. */

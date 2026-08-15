@@ -7,16 +7,50 @@
  * @module dsh-plugin-browser/playwright-backend
  */
 
+import { existsSync } from 'node:fs'
 import type { BrowserBackend, BrowserHandle, PageHandle } from './session.js'
 
 /** Resolved launch options for the Chromium backend. */
 export interface PlaywrightBackendOptions {
   /** Run without a visible window. Defaults to true; a headed run needs a display. */
   headless: boolean
-  /** Explicit browser executable; omitted uses Playwright's bundled/os Chromium. */
+  /** Explicit browser executable; omitted auto-detects and finally defers to Playwright's own resolution. */
   executablePath?: string
   /** User-Agent sent by the browser context. */
   userAgent: string
+}
+
+/** Well-known Chromium-family locations per platform, most stable first. */
+const KNOWN_LOCATIONS: Partial<Readonly<Record<NodeJS.Platform, readonly string[]>>> = {
+  darwin: [
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/Applications/Chromium.app/Contents/MacOS/Chromium',
+    '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+    '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
+  ],
+  linux: [
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/google-chrome',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/chromium',
+    '/usr/bin/microsoft-edge',
+  ],
+  win32: [
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+  ],
+}
+
+/** Config → env → well-known OS locations; undefined defers to Playwright. */
+function resolveExecutable(configured: string | undefined): string | undefined {
+  if (configured !== undefined && configured.length > 0) return configured
+  const fromEnv = process.env.DSH_BROWSER_EXECUTABLE
+  if (fromEnv !== undefined && fromEnv.length > 0) return fromEnv
+  for (const candidate of KNOWN_LOCATIONS[process.platform] ?? []) {
+    if (existsSync(candidate)) return candidate
+  }
+  return undefined
 }
 
 /**
@@ -28,10 +62,11 @@ export class PlaywrightBackend implements BrowserBackend {
   constructor(private readonly options: PlaywrightBackendOptions) {}
 
   async launch(): Promise<BrowserHandle> {
+    const executablePath = resolveExecutable(this.options.executablePath)
     const { chromium } = await import('playwright-core')
     const browser = await chromium.launch({
       headless: this.options.headless,
-      ...this.options.executablePath !== undefined ? { executablePath: this.options.executablePath } : {},
+      ...executablePath !== undefined ? { executablePath } : {},
     })
     const context = await browser.newContext({ userAgent: this.options.userAgent })
     return {
@@ -41,7 +76,6 @@ export class PlaywrightBackend implements BrowserBackend {
           goto: (url, opts) => page.goto(url, opts),
           url: () => page.url(),
           title: () => page.title(),
-          content: () => page.content(),
           click: (selector, opts) => page.click(selector, opts),
           fill: (selector, value, opts) => page.fill(selector, value, opts),
           evaluate: <T>(fn: string) => page.evaluate(fn) as Promise<T>,

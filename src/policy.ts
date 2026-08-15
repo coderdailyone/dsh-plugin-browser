@@ -58,7 +58,9 @@ export function evaluateUrl(rawUrl: string, policy: NavigationPolicy): PolicyAll
   if (!NAVIGABLE_SCHEMES.has(url.protocol)) {
     return { kind: 'unsupported-scheme', scheme: url.protocol.replace(/:$/, '') }
   }
-  const host = url.hostname.toLowerCase()
+  // Node's URL keeps IPv6 brackets in `hostname`; strip them (plus one FQDN
+  // trailing dot) so every downstream check sees one canonical host form.
+  const host = canonicalHost(url.hostname)
   if (!policy.allowPrivateNetwork && isPrivateHost(host)) {
     return { kind: 'private-network', host }
   }
@@ -66,6 +68,18 @@ export function evaluateUrl(rawUrl: string, policy: NavigationPolicy): PolicyAll
     return { kind: 'host-not-allowed', host }
   }
   return { url, host }
+}
+
+/**
+ * Canonical host form: lowercased, IPv6 brackets stripped, one trailing dot
+ * dropped (the DNS root label). A double trailing dot survives as a mismatch
+ * everywhere, so nothing fail-opens.
+ */
+function canonicalHost(hostname: string): string {
+  let host = hostname.toLowerCase()
+  if (host.startsWith('[') && host.endsWith(']')) host = host.slice(1, -1)
+  if (host.endsWith('.')) host = host.slice(0, -1)
+  return host
 }
 
 /**
@@ -79,23 +93,49 @@ export function evaluateUrl(rawUrl: string, policy: NavigationPolicy): PolicyAll
 export function hostMatches(host: string, pattern: string): boolean {
   const normalized = pattern.trim().toLowerCase().replace(/^\.+/, '').replace(/\.+$/, '')
   if (normalized.length === 0) return false
-  if (host === normalized) return true
-  return host.endsWith(`.${normalized}`)
+  const canonical = canonicalHost(host)
+  if (canonical === normalized) return true
+  return canonical.endsWith(`.${normalized}`)
 }
 
 /**
  * True for a host literal that names the local machine or a private/reserved
  * range. Only literal authorities are classified here; a public name that
  * resolves to a private address is out of scope (see {@link evaluateUrl}).
- * @param host - the lowercased URL hostname.
+ * Accepts the raw or bracket-stripped IPv6 spelling.
+ * @param host - the URL hostname (any case; brackets and one trailing dot tolerated).
  */
 export function isPrivateHost(host: string): boolean {
-  if (host === 'localhost' || host.endsWith('.localhost')) return true
-  // IPv6 loopback and unique-local / link-local literals (URL hostnames keep
-  // brackets stripped).
-  if (host === '::1' || host === '::') return true
-  if (host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe80:')) return true
-  const ipv4 = parseIpv4(host)
+  const canonical = canonicalHost(host)
+  if (canonical === 'localhost' || canonical.endsWith('.localhost')) return true
+  // A colon can occur in a URL host only for an IPv6 literal (brackets are
+  // already stripped), which guards the hex-prefix checks below from ever
+  // firing on an ordinary domain name such as `fc.example.com`.
+  if (canonical.includes(':')) {
+    if (canonical === '::1' || canonical === '::') return true
+    // IPv4-mapped literals reduce to their embedded IPv4; the URL parser may
+    // hand us either the dotted (`::ffff:127.0.0.1`) or the canonical hex
+    // (`::ffff:7f00:1`) spelling, so accept both. Anything else under
+    // `::ffff:` fails closed.
+    const mapped = /^::ffff:(.*)$/.exec(canonical)
+    if (mapped !== null) {
+      const embedded = mapped[1] ?? ''
+      if (/^\d{1,3}(\.\d{1,3}){3}$/.test(embedded)) return isPrivateHost(embedded)
+      const groups = embedded.split(':').filter(group => group.length > 0)
+      if (groups.length === 2 && groups.every(group => /^[0-9a-f]{1,4}$/.test(group))) {
+        const high = Number.parseInt(groups[0] ?? '', 16)
+        const low = Number.parseInt(groups[1] ?? '', 16)
+        return isPrivateHost(`${(high >> 8) & 0xff}.${high & 0xff}.${(low >> 8) & 0xff}.${low & 0xff}`)
+      }
+      return true
+    }
+    // Unique-local (fc00::/7, i.e. fc*/fd*), link-local (fe80::/10). The
+    // prefix test is deliberately conservative: a public literal such as
+    // `fce::1` is refused too — fail closed beats fail open here.
+    if (canonical.startsWith('fc') || canonical.startsWith('fd') || canonical.startsWith('fe80:')) return true
+    return false
+  }
+  const ipv4 = parseIpv4(canonical)
   if (ipv4 === undefined) return false
   const [a, b] = ipv4
   if (a === 10 || a === 127 || a === 0) return true

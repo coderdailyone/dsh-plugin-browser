@@ -1,0 +1,13 @@
+# The dsh-plugin-browser bundle patch: one insert adding the browser tool
+# plugin row over the profile's existing layers (e.g. dsh-base). Later layers
+# and the user's profile cordis.patch.yml can target this row by id `browser`
+# (last write wins per row).
+#
+# A Chromium is required at runtime: bring your own via the `executablePath`
+# config or $DSH_BROWSER_EXECUTABLE, or rely on Playwright's installed browser.
+# Defaults below mirror the plugin's schema defaults; restate any row here only
+# to change it for every profile that adds this bundle.
+
+- insert:
+    - id: browser
+      name: 'dsh-plugin-browser'
