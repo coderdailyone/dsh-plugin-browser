@@ -414,6 +414,86 @@ export function createBrowserTools(registry: BrowserSessions, options: BrowserTo
     },
   })
 
+  const downloads = defineTool({
+    name: 'browser_downloads',
+    description:
+      'List every download this browser session captured. Saved files live in the plugin\'s artifacts directory under sanitized names; a download from a policy-refused URL is recorded as refused and never written.',
+    parameters: {},
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          downloads: {
+            type: 'array',
+            required: true,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                index: { type: 'integer', required: true },
+                url: { type: 'string', required: true },
+                suggestedFilename: { type: 'string', required: true },
+                state: { type: 'string', required: true, enum: ['saved', 'failed', 'refused'] },
+                path: { type: 'string', description: 'Absolute path of the saved file (state=saved only).' },
+                error: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+      render: (_args, value) =>
+        textBlock(
+          value.downloads.length === 0
+            ? 'No downloads captured.'
+            : value.downloads
+              .map(row => `[${row.index}] ${row.suggestedFilename} (${row.state})${row.path !== undefined ? ` → ${row.path}` : ''}${row.error !== undefined ? ` — ${row.error}` : ''}`)
+              .join('\n'),
+        ),
+      presentationMeta: (_args, value) => ({ count: value.downloads.length }),
+    },
+    timeoutMs: options.actionTimeoutMs + TIMEOUT_HEADROOM_MS,
+    async execute(_args, exec) {
+      const owned = registry.for(ownerKeyOf(exec))
+      return raceAbort(exec.signal, owned.run(async session => ({ downloads: await session.downloads() })))
+    },
+    presentCall: () => ({ card: 'generic', title: 'List downloads', kind: 'read', rawInput: undefined }),
+    presentResult: () => undefined,
+  })
+
+  const upload = defineTool({
+    name: 'browser_upload',
+    description:
+      'Attach a file to an <input type=file> on the current page. Only a bare filename directly inside the operator-configured uploads directory is eligible; without that configuration, uploads are disabled.',
+    parameters: {
+      selector: { type: 'string', required: true, description: 'CSS selector of the file input.' },
+      filename: { type: 'string', required: true, description: 'Bare filename inside the uploads directory (no paths).' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          url: { type: 'string', required: true },
+          title: { type: 'string', required: true },
+        },
+      },
+      render: (args, value) => textBlock(`Attached ${args.filename} to ${args.selector}\nAt ${value.url}`),
+      presentationMeta: (_args, value) => ({ url: value.url, title: value.title }),
+    },
+    timeoutMs: options.actionTimeoutMs + TIMEOUT_HEADROOM_MS,
+    async execute(args, exec) {
+      const owned = registry.for(ownerKeyOf(exec))
+      return raceAbort(exec.signal, owned.run(session => session.uploadFile(args.selector, args.filename)))
+    },
+    presentCall: args => ({ card: 'generic', title: `Upload ${args.filename}`, kind: 'edit', rawInput: { selector: args.selector, filename: args.filename } }),
+    presentResult: (_args, result) => {
+      if (result.isError) return undefined
+      const title = readingTitle(result.meta)
+      return title === undefined ? undefined : { card: 'generic', title }
+    },
+  })
+
   const tabNew = defineTool({
     name: 'browser_tab_new',
     description:
@@ -590,5 +670,5 @@ export function createBrowserTools(registry: BrowserSessions, options: BrowserTo
     presentResult: (_args, result) => (result.isError ? undefined : { card: 'generic', title: 'Browser closed' }),
   })
 
-  return [navigate, click, fill, readText, readSnapshot, screenshot, pdf, tabNew, tabList, tabSelect, tabClose, close]
+  return [navigate, click, fill, readText, readSnapshot, screenshot, pdf, downloads, upload, tabNew, tabList, tabSelect, tabClose, close]
 }

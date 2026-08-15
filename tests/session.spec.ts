@@ -413,6 +413,104 @@ describe('snapshot and artifacts', () => {
   })
 })
 
+describe('downloads, storage state, and uploads', () => {
+  function fakeDownload(url: string, suggestedFilename: string) {
+    const saved: string[] = []
+    return {
+      saved,
+      event: {
+        url,
+        suggestedFilename,
+        saveAs: async (path: string) => {
+          saved.push(path)
+        },
+      },
+    }
+  }
+
+  it('captures a download into the artifacts dir under a sanitized name', async () => {
+    const backend = new StubBackend()
+    const dir = `${process.env.TMPDIR ?? '/tmp'}/dsh-browser-use-test-dl-${process.pid}`
+    const session = new BrowserSession(backend, makeConfig({ artifactsDir: dir }))
+    await session.navigate('https://example.com/')
+    const download = fakeDownload('https://example.com/report', '../../etc/evil name.pdf')
+    backend.emitDownload(download.event)
+    const rows = await session.downloads()
+    expect(rows).toEqual([
+      {
+        index: 0,
+        url: 'https://example.com/report',
+        suggestedFilename: '../../etc/evil name.pdf',
+        state: 'saved',
+        path: `${dir}/download-1-evil_name.pdf`,
+      },
+    ])
+    expect(download.saved).toEqual([`${dir}/download-1-evil_name.pdf`])
+  })
+
+  it('SECURITY: a download from a policy-refused URL is recorded but never written', async () => {
+    const backend = new StubBackend()
+    const session = new BrowserSession(backend, makeConfig({ policy: exampleOnly }))
+    await session.navigate('https://example.com/')
+    const download = fakeDownload('https://evil.test/payload.bin', 'payload.bin')
+    backend.emitDownload(download.event)
+    const rows = await session.downloads()
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ state: 'refused', url: 'https://evil.test/payload.bin' })
+    expect(rows[0]?.path).toBeUndefined()
+    expect(download.saved).toHaveLength(0)
+  })
+
+  it('records a failing save as failed with the error preserved', async () => {
+    const backend = new StubBackend()
+    const session = new BrowserSession(backend, makeConfig())
+    await session.navigate('https://example.com/')
+    backend.emitDownload({
+      url: 'https://example.com/gone',
+      suggestedFilename: 'gone.txt',
+      saveAs: async () => {
+        throw new Error('canceled by server')
+      },
+    })
+    const rows = await session.downloads()
+    expect(rows[0]).toMatchObject({ state: 'failed', error: 'Error: canceled by server' })
+  })
+
+  it('persists storage state on close when configured, and only then', async () => {
+    const backend = new StubBackend()
+    const session = new BrowserSession(backend, makeConfig({ storageStatePath: '/tmp/state.json' }))
+    await session.navigate('https://example.com/')
+    await session.close()
+    expect(backend.savedStates).toEqual(['/tmp/state.json'])
+    const plain = new StubBackend()
+    const bare = new BrowserSession(plain, makeConfig())
+    await bare.navigate('https://example.com/')
+    await bare.close()
+    expect(plain.savedStates).toEqual([])
+  })
+
+  it('uploads are disabled outright without an uploadsDir', async () => {
+    const backend = new StubBackend()
+    const session = new BrowserSession(backend, makeConfig())
+    await session.navigate('https://example.com/')
+    await expectBrowserError(session.uploadFile('#file', 'notes.txt'), 'BROWSER_UPLOAD_NOT_ALLOWED')
+    expect(backend.page.setFilesCalls).toHaveLength(0)
+  })
+
+  it('SECURITY: upload accepts only bare filenames inside uploadsDir — every traversal shape is refused', async () => {
+    const backend = new StubBackend()
+    const session = new BrowserSession(backend, makeConfig({ uploadsDir: '/srv/uploads' }))
+    await session.navigate('https://example.com/')
+    for (const bad of ['../secret', 'a/../../b', '/etc/passwd', 'dir/file.txt', 'C:\\x', '.', '..', '']) {
+      await expectBrowserError(session.uploadFile('#file', bad), 'BROWSER_UPLOAD_NOT_ALLOWED')
+    }
+    expect(backend.page.setFilesCalls).toHaveLength(0)
+    const outcome = await session.uploadFile('#file', 'notes.txt')
+    expect(outcome.url).toBe('https://example.com/')
+    expect(backend.page.setFilesCalls).toEqual([{ selector: '#file', path: '/srv/uploads/notes.txt' }])
+  })
+})
+
 describe('tabs', () => {
   it('tabNew without a URL opens a blank tab that is unusable until navigated', async () => {
     const backend = new StubBackend()

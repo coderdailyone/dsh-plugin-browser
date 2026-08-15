@@ -43,7 +43,9 @@ export const Config = z.object({
   navigationTimeoutMs: z.number().step(1).min(1).default(DEFAULT_NAVIGATION_TIMEOUT_MS).description('Navigation timeout in milliseconds. Default 30000.'),
   actionTimeoutMs: z.number().step(1).min(1).default(DEFAULT_ACTION_TIMEOUT_MS).description('Click/fill/read timeout in milliseconds. Default 15000.'),
   maxTextChars: z.number().step(1).min(1).default(DEFAULT_MAX_TEXT_CHARS).description('Upper bound on returned page text, in characters. Default 20000.'),
-  artifactsDir: z.string().description('Directory for screenshots/PDFs. The plugin names every file itself; models never supply paths. Default: a private per-session directory under the OS temp dir.'),
+  artifactsDir: z.string().description('Directory for screenshots/PDFs/downloads. The plugin names every file itself; models never supply paths. Default: a private per-session directory under the OS temp dir.'),
+  storageStatePath: z.string().description('Persist cookies/localStorage to this file on close and load it at launch. The file holds live credentials — protect it. With several agents, last close wins.'),
+  uploadsDir: z.string().description('Only files directly inside this directory can be uploaded via browser_upload (bare filenames only). Unset = uploads disabled.'),
 })
 
 type ResolvedConfig = ReturnType<typeof Config>
@@ -103,6 +105,7 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
     userAgent: resolved.userAgent,
     ...config.proxyServer !== undefined ? { proxyServer: config.proxyServer } : {},
     ...config.proxyBypass !== undefined ? { proxyBypass: config.proxyBypass } : {},
+    ...config.storageStatePath !== undefined ? { storageStatePath: config.storageStatePath } : {},
   })
   const registry = new BrowserSessions(() =>
     new BrowserSession(backend, {
@@ -111,6 +114,8 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
       actionTimeoutMs: resolved.actionTimeoutMs,
       maxTextChars: resolved.maxTextChars,
       ...config.artifactsDir !== undefined ? { artifactsDir: config.artifactsDir } : {},
+      ...config.storageStatePath !== undefined ? { storageStatePath: config.storageStatePath } : {},
+      ...config.uploadsDir !== undefined ? { uploadsDir: config.uploadsDir } : {},
     }),
   )
   registerBrowserTools(ctx, registry, {

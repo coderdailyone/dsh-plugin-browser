@@ -173,6 +173,7 @@ describe('plugin composition', () => {
     for (const expected of [
       'browser_navigate', 'browser_click', 'browser_fill', 'browser_read_text',
       'browser_read_snapshot', 'browser_screenshot', 'browser_pdf',
+      'browser_downloads', 'browser_upload',
       'browser_tab_new', 'browser_tab_list', 'browser_tab_select', 'browser_tab_close',
       'browser_close',
     ]) {
@@ -326,6 +327,18 @@ describe('tool pipeline over a stub backend', () => {
     // The tools take no path parameter at all — a model cannot supply one.
     const screenshotSchema = ctx.tools.schemas().find(schema => schema.name === 'browser_screenshot')
     expect(Object.keys((screenshotSchema?.parameters as { properties?: object })?.properties ?? {})).toEqual([])
+    await fiber.dispose()
+  })
+
+  it('browser_upload without configuration surfaces the disabled state as isError', async () => {
+    const { ctx, fiber } = await composeStub()
+    await ctx.tools.execute(execution('browser_navigate', { url: 'https://example.com/' }, 'owner-a'))
+    const result = await ctx.tools.execute(execution('browser_upload', { selector: '#f', filename: 'x.txt' }, 'owner-a'))
+    expect(result.isError).toBe(true)
+    expect(resultText(result)).toContain('BROWSER_UPLOAD_NOT_ALLOWED')
+    const empty = await ctx.tools.execute(execution('browser_downloads', {}, 'owner-a'))
+    expect(empty.isError).toBe(false)
+    if (!empty.isError) expect(empty.value).toEqual({ downloads: [] })
     await fiber.dispose()
   })
 

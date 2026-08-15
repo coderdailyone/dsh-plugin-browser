@@ -16,6 +16,30 @@ import { join } from 'node:path'
 import { evaluateUrl, describeDenial, type NavigationPolicy } from './policy.js'
 
 /**
+ * Reduce a server-suggested download filename to one safe path segment:
+ * only the last segment survives, leading dots are stripped (no hidden files,
+ * no `..`), everything outside word characters/CJK/dot/dash collapses to `_`,
+ * and the result is length-bounded. Empty results fall back to `download`.
+ */
+export function sanitizeFilename(name: string): string {
+  const last = name.split(/[/\\]/).pop() ?? ''
+  const cleaned = last.replace(/[^\w.一-鿿-]+/g, '_').replace(/^\.+/, '')
+  const bounded = cleaned.slice(0, 100)
+  return bounded.length === 0 ? 'download' : bounded
+}
+
+/**
+ * Resolve a model-supplied upload filename inside the operator's uploads
+ * directory. Only a bare filename is accepted: separators, `.`, and `..` are
+ * refused outright, so the resolved path can never escape `uploadsDir`.
+ */
+export function resolveUploadPath(uploadsDir: string, filename: string): string | undefined {
+  if (filename.length === 0 || filename === '.' || filename === '..') return undefined
+  if (filename.includes('/') || filename.includes('\\') || filename.includes(':')) return undefined
+  return join(uploadsDir, filename)
+}
+
+/**
  * Cut `text` at `maxChars` characters without splitting a surrogate pair: when
  * the cut would land inside an astral character (emoji, rare CJK), the cut
  * moves left so the result never ends in a lone high surrogate.
@@ -127,6 +151,21 @@ export interface SessionConfig {
    * per-session directory under the OS temp dir, created on first use.
    */
   readonly artifactsDir?: string
+  /** Persist cookies/localStorage here on close (and load at launch, wired in the backend). */
+  readonly storageStatePath?: string
+  /** Only files directly inside this directory may be uploaded. Unset: uploads are disabled. */
+  readonly uploadsDir?: string
+}
+
+/** One captured download, as reported by `downloads()`. */
+export interface DownloadRecord {
+  readonly index: number
+  readonly url: string
+  readonly suggestedFilename: string
+  /** Where the file landed (present only when `state` is `saved`). */
+  readonly path?: string
+  readonly state: 'saved' | 'failed' | 'refused'
+  readonly error?: string
 }
 
 /**
@@ -172,7 +211,91 @@ export class BrowserSession {
       // interaction on them still passes the policy gates.
       if (!this.tabs.includes(page)) this.tabs.push(page)
     })
+    this.handle.onDownload(download => this.captureDownload(download))
     return this.handle
+  }
+
+  private readonly downloadRecords: {
+    index: number
+    url: string
+    suggestedFilename: string
+    path?: string
+    state: 'saved' | 'failed' | 'refused'
+    error?: string
+  }[] = []
+
+  private readonly pendingSaves: Promise<void>[] = []
+
+  /**
+   * A page started a download. The download URL passes the same navigation
+   * policy as everything else — an off-policy download is recorded as refused
+   * and never written to disk. Saved files land in the artifacts directory
+   * under a sanitized name the session builds itself.
+   */
+  private captureDownload(download: DownloadEvent): void {
+    const index = this.downloadRecords.length
+    const verdict = evaluateUrl(download.url, this.config.policy)
+    if ('kind' in verdict) {
+      this.downloadRecords.push({
+        index,
+        url: download.url,
+        suggestedFilename: download.suggestedFilename,
+        state: 'refused',
+        error: describeDenial(verdict),
+      })
+      return
+    }
+    const path = this.artifactFile(`download-${index + 1}-${sanitizeFilename(download.suggestedFilename)}`)
+    const row: (typeof this.downloadRecords)[number] = {
+      index,
+      url: download.url,
+      suggestedFilename: download.suggestedFilename,
+      state: 'failed',
+    }
+    this.downloadRecords.push(row)
+    this.pendingSaves.push(
+      download.saveAs(path).then(
+        () => {
+          row.state = 'saved'
+          row.path = path
+        },
+        (error: unknown) => {
+          row.error = String(error)
+        },
+      ),
+    )
+  }
+
+  /** Every download this session captured, with pending saves settled first. */
+  async downloads(): Promise<DownloadRecord[]> {
+    this.assertOpen()
+    await Promise.all(this.pendingSaves)
+    return this.downloadRecords.map(row => ({ ...row }))
+  }
+
+  /**
+   * Attach a file to an `<input type=file>`. Only bare filenames directly
+   * inside the operator-configured `uploadsDir` are ever eligible; with no
+   * `uploadsDir`, uploads are disabled outright.
+   */
+  async uploadFile(selector: string, filename: string): Promise<ActionOutcome> {
+    const page = this.requirePage()
+    this.enforceInteractive(page)
+    const dir = this.config.uploadsDir
+    if (dir === undefined) {
+      throw new BrowserError('file upload is disabled: no uploadsDir is configured', 'BROWSER_UPLOAD_NOT_ALLOWED')
+    }
+    const path = resolveUploadPath(dir, filename)
+    if (path === undefined) {
+      throw new BrowserError(`"${filename}" is not a bare filename inside the uploads directory`, 'BROWSER_UPLOAD_NOT_ALLOWED')
+    }
+    try {
+      await page.setInputFiles(selector, path, { timeout: this.config.actionTimeoutMs })
+    } catch (error: unknown) {
+      throw new BrowserError(`upload to ${selector} failed: ${String(error)}`, 'BROWSER_ACTION_FAILED', { cause: error })
+    }
+    this.enforce(page.url())
+    return { url: page.url(), title: await this.readTitleOf(page) }
   }
 
   /** Drop externally-closed tabs, keeping the active tab stable when it survives. */
@@ -307,7 +430,8 @@ export class BrowserSession {
 
   private artifactCount = 0
 
-  private artifactPath(prefix: string, extension: string): string {
+  /** Resolve a session-built filename inside the artifacts directory. */
+  private artifactFile(name: string): string {
     if (this.artifactsRoot === undefined) {
       if (this.config.artifactsDir !== undefined) {
         mkdirSync(this.config.artifactsDir, { recursive: true })
@@ -316,8 +440,12 @@ export class BrowserSession {
         this.artifactsRoot = mkdtempSync(join(tmpdir(), 'dsh-browser-use-artifacts-'))
       }
     }
+    return join(this.artifactsRoot, name)
+  }
+
+  private artifactPath(prefix: string, extension: string): string {
     this.artifactCount += 1
-    return join(this.artifactsRoot, `${prefix}-${this.artifactCount}.${extension}`)
+    return this.artifactFile(`${prefix}-${this.artifactCount}.${extension}`)
   }
 
   /**
@@ -456,10 +584,15 @@ export class BrowserSession {
     this.enforce(page.url())
   }
 
-  /** Idempotently close the browser, awaiting the backend's teardown. */
+  /**
+   * Idempotently close the browser, awaiting the backend's teardown. When a
+   * `storageStatePath` is configured, cookies/localStorage are persisted
+   * first; a failing save never blocks the teardown.
+   */
   async close(): Promise<void> {
     if (this.closing !== undefined) return this.closing
     const handle = this.handle
+    const statePath = this.config.storageStatePath
     this.tabs = []
     this.activeIndex = 0
     this.handle = undefined
@@ -467,7 +600,17 @@ export class BrowserSession {
       this.closing = Promise.resolve()
       return this.closing
     }
-    this.closing = handle.close()
+    this.closing = (async () => {
+      if (statePath !== undefined) {
+        try {
+          await handle.saveStorageState(statePath)
+        } catch {
+          // Teardown must win over persistence; a lost save surfaces as a
+          // missing state file, never as a leaked browser process.
+        }
+      }
+      await handle.close()
+    })()
     return this.closing
   }
 }
