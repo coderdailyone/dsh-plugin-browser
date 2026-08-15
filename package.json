@@ -1,6 +1,6 @@
 {
   "name": "dsh-plugin-browser-use",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Browser-automation tools for DeepSeek Harness (dsh): Chromium via playwright-core behind a security-first navigation policy re-checked on every action",
   "type": "module",
   "main": "lib/index.js",

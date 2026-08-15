@@ -95,6 +95,44 @@ describe.skipIf(!live)('live Chromium smoke', { timeout: 120_000 }, () => {
   )
 
   it(
+    'tabs, aria snapshot, screenshot, and PDF against a real Chromium',
+    async () => {
+      const { mkdtempSync, statSync } = await import('node:fs')
+      const { tmpdir } = await import('node:os')
+      const { join } = await import('node:path')
+      const artifactsDir = mkdtempSync(join(tmpdir(), 'dsh-browser-use-live-'))
+      const session = new BrowserSession(backend(), {
+        policy: { allowedHosts: [], allowPrivateNetwork: false },
+        navigationTimeoutMs: 30_000,
+        actionTimeoutMs: 15_000,
+        maxTextChars: 20_000,
+        artifactsDir,
+      })
+      try {
+        await session.navigate('https://example.com/')
+        const snapshot = await session.readSnapshot()
+        expect(snapshot.snapshot.toLowerCase()).toContain('example domain')
+        const shot = await session.screenshot()
+        expect(statSync(shot.path).size).toBeGreaterThan(1_000)
+        const exported = await session.pdf()
+        expect(statSync(exported.path).size).toBeGreaterThan(1_000)
+        const opened = await session.tabNew('https://example.com/?tab=2')
+        expect(opened.index).toBe(1)
+        const rows = await session.tabList()
+        expect(rows).toHaveLength(2)
+        expect(rows[1]?.active).toBe(true)
+        await session.tabSelect(0)
+        expect((await session.readText()).url).toBe('https://example.com/')
+        await session.tabClose(1)
+        expect((await session.tabList())).toHaveLength(1)
+      } finally {
+        await session.close()
+      }
+    },
+    120_000,
+  )
+
+  it(
     'refuses a loopback target by default with BROWSER_PRIVATE_NETWORK',
     async () => {
       const session = new BrowserSession(backend(), {
@@ -150,8 +188,7 @@ describe.skipIf(!live)('live Chromium smoke', { timeout: 120_000 }, () => {
       })
       try {
         await session.navigate('https://example.com/')
-        const page = (session as unknown as { page?: PageHandle }).page
-        expect(page).toBeDefined()
+        expect(await session.tabList()).toHaveLength(1)
         // example.com's classic page has one link (iana.org, off-allowlist):
         // clicking it must be refused by the post-click re-check.
         const outcome = session.click('a')

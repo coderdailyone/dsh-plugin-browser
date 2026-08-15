@@ -1,10 +1,11 @@
 /**
  * `dsh-plugin-browser-use`: browser-automation tools for the DeepSeek Harness.
- * Registers five model-facing tools (`browser_navigate`, `browser_click`,
- * `browser_fill`, `browser_read_text`, `browser_close`) into `ctx.tools`,
- * backed by Chromium through `playwright-core`. The differentiator is a
- * security-first navigation policy (host-label allowlist + private-network
- * block) re-checked on every action, not once at open.
+ * Registers the `browser_*` tool suite (navigate/click/fill/read/snapshot/
+ * screenshot/pdf/downloads/upload/tabs/background loads/close) into
+ * `ctx.tools`, backed by Chromium through `playwright-core`. The
+ * differentiator is a security-first design: a navigation policy re-checked
+ * on every action (host-label allowlist + private-network block), and no
+ * model-controlled filesystem paths anywhere on the tool surface.
  * @module dsh-plugin-browser-use
  */
 
@@ -21,7 +22,7 @@ export const name = 'dsh-plugin-browser-use'
 export const inject = ['tools']
 
 /** Plugin version stamped into the default User-Agent. Keep in lockstep with package.json. */
-const VERSION = '0.2.1'
+const VERSION = '0.3.0'
 
 /** Default bound on one returned page text (the `maxTextChars` config). */
 export const DEFAULT_MAX_TEXT_CHARS = 20_000
@@ -65,7 +66,7 @@ function assertValidConfig(config: ResolvedConfig): void {
 }
 
 /**
- * Register the five browser tools and the fiber-scoped teardown that closes
+ * Register the browser tool suite and the fiber-scoped teardown that closes
  * every owner session when the enclosing plugin fiber unloads. Both the
  * tool registrations and the `ctx.effect` disposer are effect-scoped.
  */
