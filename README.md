@@ -9,7 +9,7 @@ Its differentiator is a **security-first navigation policy**: every URL is re-ch
 ## Install
 
 ```bash
-dsh plugin --profile web add dsh-plugin-browser
+dsh plugin --profile web add @codemycookieday/dsh-plugin-browser
 dsh --profile web --dump-config   # should show the "# == dsh-plugin-browser" layer
 ```
 

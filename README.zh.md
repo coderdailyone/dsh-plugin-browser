@@ -9,7 +9,7 @@
 ## 安装
 
 ```bash
-dsh plugin --profile web add dsh-plugin-browser
+dsh plugin --profile web add @codemycookieday/dsh-plugin-browser
 dsh --profile web --dump-config   # 应能看到 "# == dsh-plugin-browser" 补丁层
 ```
 

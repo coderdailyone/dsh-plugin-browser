@@ -1,5 +1,5 @@
 {
-  "name": "dsh-plugin-browser",
+  "name": "@codemycookieday/dsh-plugin-browser",
   "version": "0.1.0",
   "description": "Browser-automation tools for DeepSeek Harness (dsh): Chromium via playwright-core behind a security-first navigation policy re-checked on every action",
   "type": "module",
