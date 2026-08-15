@@ -172,6 +172,7 @@ describe('plugin composition', () => {
     const names = ctx.tools.schemas().map(schema => schema.name)
     for (const expected of [
       'browser_navigate', 'browser_click', 'browser_fill', 'browser_read_text',
+      'browser_read_snapshot', 'browser_screenshot', 'browser_pdf',
       'browser_tab_new', 'browser_tab_list', 'browser_tab_select', 'browser_tab_close',
       'browser_close',
     ]) {
@@ -304,6 +305,27 @@ describe('tool pipeline over a stub backend', () => {
       expect(result.isError, name).toBe(true)
       expect(resultText(result), name).toContain('BROWSER_NO_PAGE')
     }
+    await fiber.dispose()
+  })
+
+  it('snapshot and screenshot flow through the registry with plugin-named artifact paths', async () => {
+    const { ctx, fiber } = await composeStub()
+    await ctx.tools.execute(execution('browser_navigate', { url: 'https://example.com/' }, 'owner-a'))
+    const snapshot = await ctx.tools.execute(execution('browser_read_snapshot', {}, 'owner-a'))
+    expect(snapshot.isError).toBe(false)
+    if (!snapshot.isError) {
+      expect(snapshot.value).toEqual({ url: 'https://example.com/', title: 'Stub Title', snapshot: '- document', truncated: false })
+    }
+    const shot = await ctx.tools.execute(execution('browser_screenshot', {}, 'owner-a'))
+    expect(shot.isError).toBe(false)
+    if (!shot.isError) {
+      const { path } = shot.value as { path: string }
+      expect(path).toMatch(/screenshot-1\.png$/)
+      expect(path).toContain('dsh-browser-use-artifacts-')
+    }
+    // The tools take no path parameter at all — a model cannot supply one.
+    const screenshotSchema = ctx.tools.schemas().find(schema => schema.name === 'browser_screenshot')
+    expect(Object.keys((screenshotSchema?.parameters as { properties?: object })?.properties ?? {})).toEqual([])
     await fiber.dispose()
   })
 

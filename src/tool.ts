@@ -166,14 +166,6 @@ function readingTitle(meta: unknown): string | undefined {
  * `BrowserError`, which the tool registry materializes as `isError` results.
  */
 export function createBrowserTools(registry: BrowserSessions, options: BrowserToolOptions): ToolDefinition[] {
-  const sessionConfig = {
-    policy: options.policy,
-    navigationTimeoutMs: options.navigationTimeoutMs,
-    actionTimeoutMs: options.actionTimeoutMs,
-    maxTextChars: options.maxTextChars,
-  }
-  const newSession = (): BrowserSession => new BrowserSession(options.backend, sessionConfig)
-
   const navigate = defineTool({
     name: 'browser_navigate',
     description:
@@ -320,6 +312,101 @@ export function createBrowserTools(registry: BrowserSessions, options: BrowserTo
       return raceAbort(exec.signal, owned.run(session => session.readText()))
     },
     presentCall: () => ({ card: 'generic', title: 'Read page text', kind: 'read', rawInput: undefined }),
+    presentResult: (_args, result) => {
+      if (result.isError) return undefined
+      const title = readingTitle(result.meta)
+      return title === undefined ? undefined : { card: 'generic', title }
+    },
+  })
+
+  const readSnapshot = defineTool({
+    name: 'browser_read_snapshot',
+    description:
+      'Aria snapshot of the current page: a role/name outline of the rendered accessibility tree. More stable than raw text for finding elements to click or fill; bounded like page text. The URL is policy re-checked first.',
+    parameters: {},
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          url: { type: 'string', required: true },
+          title: { type: 'string', required: true },
+          snapshot: { type: 'string', required: true, description: 'The aria outline (YAML-like role/name tree), bounded by maxTextChars.' },
+          truncated: { type: 'boolean', required: true },
+        },
+      },
+      render: (_args, value) =>
+        textBlock(`At ${value.url}\n\n${value.snapshot}${value.truncated ? TRUNCATION_FOOTER : ''}`),
+      presentationMeta: (_args, value) => ({ url: value.url, title: value.title, truncated: value.truncated }),
+    },
+    timeoutMs: options.actionTimeoutMs + TIMEOUT_HEADROOM_MS,
+    async execute(_args, exec) {
+      const owned = registry.for(ownerKeyOf(exec))
+      return raceAbort(exec.signal, owned.run(session => session.readSnapshot()))
+    },
+    presentCall: () => ({ card: 'generic', title: 'Read page snapshot', kind: 'read', rawInput: undefined }),
+    presentResult: (_args, result) => {
+      if (result.isError) return undefined
+      const title = readingTitle(result.meta)
+      return title === undefined ? undefined : { card: 'generic', title }
+    },
+  })
+
+  const screenshot = defineTool({
+    name: 'browser_screenshot',
+    description:
+      'Save a PNG of the current page viewport into the plugin\'s artifacts directory and return its absolute path. The plugin picks the filename; a path cannot be supplied.',
+    parameters: {},
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          path: { type: 'string', required: true, description: 'Absolute path of the saved PNG.' },
+          url: { type: 'string', required: true },
+          title: { type: 'string', required: true },
+        },
+      },
+      render: (_args, value) => textBlock(`Screenshot of ${value.url} saved to ${value.path}`),
+      presentationMeta: (_args, value) => ({ url: value.url, title: value.title }),
+    },
+    timeoutMs: options.actionTimeoutMs + TIMEOUT_HEADROOM_MS,
+    async execute(_args, exec) {
+      const owned = registry.for(ownerKeyOf(exec))
+      return raceAbort(exec.signal, owned.run(session => session.screenshot()))
+    },
+    presentCall: () => ({ card: 'generic', title: 'Screenshot', kind: 'other', rawInput: undefined }),
+    presentResult: (_args, result) => {
+      if (result.isError) return undefined
+      const title = readingTitle(result.meta)
+      return title === undefined ? undefined : { card: 'generic', title }
+    },
+  })
+
+  const pdf = defineTool({
+    name: 'browser_pdf',
+    description:
+      'Export the current page as a PDF into the plugin\'s artifacts directory and return its absolute path (headless Chromium only). The plugin picks the filename; a path cannot be supplied.',
+    parameters: {},
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          path: { type: 'string', required: true, description: 'Absolute path of the saved PDF.' },
+          url: { type: 'string', required: true },
+          title: { type: 'string', required: true },
+        },
+      },
+      render: (_args, value) => textBlock(`PDF of ${value.url} saved to ${value.path}`),
+      presentationMeta: (_args, value) => ({ url: value.url, title: value.title }),
+    },
+    timeoutMs: options.actionTimeoutMs + TIMEOUT_HEADROOM_MS,
+    async execute(_args, exec) {
+      const owned = registry.for(ownerKeyOf(exec))
+      return raceAbort(exec.signal, owned.run(session => session.pdf()))
+    },
+    presentCall: () => ({ card: 'generic', title: 'Export PDF', kind: 'other', rawInput: undefined }),
     presentResult: (_args, result) => {
       if (result.isError) return undefined
       const title = readingTitle(result.meta)
@@ -503,5 +590,5 @@ export function createBrowserTools(registry: BrowserSessions, options: BrowserTo
     presentResult: (_args, result) => (result.isError ? undefined : { card: 'generic', title: 'Browser closed' }),
   })
 
-  return [navigate, click, fill, readText, tabNew, tabList, tabSelect, tabClose, close]
+  return [navigate, click, fill, readText, readSnapshot, screenshot, pdf, tabNew, tabList, tabSelect, tabClose, close]
 }

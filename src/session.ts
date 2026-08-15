@@ -10,6 +10,9 @@
  * @module dsh-plugin-browser-use/session
  */
 
+import { mkdirSync, mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { evaluateUrl, describeDenial, type NavigationPolicy } from './policy.js'
 
 /**
@@ -99,6 +102,18 @@ export interface TabInfo {
   readonly title?: string
 }
 
+/** A snapshot of the page's accessibility outline, bounded like page text. */
+export interface PageSnapshot extends ActionOutcome {
+  readonly snapshot: string
+  readonly truncated: boolean
+}
+
+/** A file the session wrote on the model's behalf (screenshot, PDF). */
+export interface ArtifactOutcome extends ActionOutcome {
+  /** Absolute path of the written file, inside the artifacts directory. */
+  readonly path: string
+}
+
 /** Resolved session tunables. */
 export interface SessionConfig {
   readonly policy: NavigationPolicy
@@ -106,6 +121,12 @@ export interface SessionConfig {
   readonly actionTimeoutMs: number
   /** Upper bound on extracted page text handed to the model, in characters. */
   readonly maxTextChars: number
+  /**
+   * Where screenshots/PDFs are written. The session names every file itself —
+   * a model-supplied path never reaches the filesystem. Unset: a private
+   * per-session directory under the OS temp dir, created on first use.
+   */
+  readonly artifactsDir?: string
 }
 
 /**
@@ -260,6 +281,72 @@ export class BrowserSession {
       text: bounded.text,
       truncated: bounded.truncated,
     }
+  }
+
+  /**
+   * Aria snapshot of the active page: a role/name outline of the rendered
+   * accessibility tree, more selector-stable than raw text. Same policy gates
+   * and the same `maxTextChars` bound as `readText`.
+   */
+  async readSnapshot(): Promise<PageSnapshot> {
+    const page = this.requirePage()
+    this.enforceInteractive(page)
+    const title = await this.readTitleOf(page)
+    let raw: string
+    try {
+      raw = await page.ariaSnapshot({ timeout: this.config.actionTimeoutMs })
+    } catch (error: unknown) {
+      throw new BrowserError(`snapshot failed: ${String(error)}`, 'BROWSER_ACTION_FAILED', { cause: error })
+    }
+    const bounded = truncateText(raw, this.config.maxTextChars)
+    return { url: page.url(), title, snapshot: bounded.text, truncated: bounded.truncated }
+  }
+
+  /** Artifact directory, created on first use. */
+  private artifactsRoot: string | undefined
+
+  private artifactCount = 0
+
+  private artifactPath(prefix: string, extension: string): string {
+    if (this.artifactsRoot === undefined) {
+      if (this.config.artifactsDir !== undefined) {
+        mkdirSync(this.config.artifactsDir, { recursive: true })
+        this.artifactsRoot = this.config.artifactsDir
+      } else {
+        this.artifactsRoot = mkdtempSync(join(tmpdir(), 'dsh-browser-use-artifacts-'))
+      }
+    }
+    this.artifactCount += 1
+    return join(this.artifactsRoot, `${prefix}-${this.artifactCount}.${extension}`)
+  }
+
+  /**
+   * Screenshot the active page's viewport into the artifacts directory. The
+   * session picks the filename — the model never supplies a path.
+   */
+  async screenshot(): Promise<ArtifactOutcome> {
+    const page = this.requirePage()
+    this.enforceInteractive(page)
+    const path = this.artifactPath('screenshot', 'png')
+    try {
+      await page.screenshot(path, { timeout: this.config.actionTimeoutMs })
+    } catch (error: unknown) {
+      throw new BrowserError(`screenshot failed: ${String(error)}`, 'BROWSER_ACTION_FAILED', { cause: error })
+    }
+    return { path, url: page.url(), title: await this.readTitleOf(page) }
+  }
+
+  /** Export the active page as a PDF into the artifacts directory (headless Chromium only). */
+  async pdf(): Promise<ArtifactOutcome> {
+    const page = this.requirePage()
+    this.enforceInteractive(page)
+    const path = this.artifactPath('page', 'pdf')
+    try {
+      await page.pdf(path)
+    } catch (error: unknown) {
+      throw new BrowserError(`PDF export failed (headless Chromium only): ${String(error)}`, 'BROWSER_ACTION_FAILED', { cause: error })
+    }
+    return { path, url: page.url(), title: await this.readTitleOf(page) }
   }
 
   /**

@@ -368,6 +368,51 @@ describe('BrowserSession', () => {
   })
 })
 
+describe('snapshot and artifacts', () => {
+  it('readSnapshot returns the bounded aria outline with the usual policy gates', async () => {
+    const backend = new StubBackend()
+    const session = new BrowserSession(backend, makeConfig({ maxTextChars: 12 }))
+    await expectBrowserError(session.readSnapshot(), 'BROWSER_NO_PAGE')
+    await session.navigate('https://example.com/')
+    backend.page.snapshotValue = '- heading "Example Domain"'
+    const bounded = await session.readSnapshot()
+    expect(bounded).toEqual({ url: 'https://example.com/', title: 'Stub Title', snapshot: '- heading "E', truncated: true })
+  })
+
+  it('readSnapshot refuses a page scripted onto a disallowed host', async () => {
+    const backend = new StubBackend()
+    const session = new BrowserSession(backend, makeConfig({ policy: exampleOnly }))
+    await session.navigate('https://example.com/')
+    backend.page.urlValue = 'https://evil.test/moved'
+    await expectBrowserError(session.readSnapshot(), 'BROWSER_HOST_NOT_ALLOWED')
+  })
+
+  it('screenshot and pdf write session-named files under the configured artifacts dir', async () => {
+    const backend = new StubBackend()
+    const dir = `${process.env.TMPDIR ?? '/tmp'}/dsh-browser-use-test-artifacts-${process.pid}`
+    const session = new BrowserSession(backend, makeConfig({ artifactsDir: dir }))
+    await session.navigate('https://example.com/')
+    const shot = await session.screenshot()
+    expect(shot.path).toBe(`${dir}/screenshot-1.png`)
+    expect(shot.url).toBe('https://example.com/')
+    const exported = await session.pdf()
+    expect(exported.path).toBe(`${dir}/page-2.pdf`)
+    expect(backend.page.screenshotCalls).toEqual([`${dir}/screenshot-1.png`])
+    expect(backend.page.pdfCalls).toEqual([`${dir}/page-2.pdf`])
+  })
+
+  it('SECURITY: an off-policy page can never be screenshotted or exported', async () => {
+    const backend = new StubBackend()
+    const session = new BrowserSession(backend, makeConfig({ policy: exampleOnly }))
+    await session.navigate('https://example.com/')
+    backend.page.urlValue = 'https://evil.test/moved'
+    await expectBrowserError(session.screenshot(), 'BROWSER_HOST_NOT_ALLOWED')
+    await expectBrowserError(session.pdf(), 'BROWSER_HOST_NOT_ALLOWED')
+    expect(backend.page.screenshotCalls).toHaveLength(0)
+    expect(backend.page.pdfCalls).toHaveLength(0)
+  })
+})
+
 describe('tabs', () => {
   it('tabNew without a URL opens a blank tab that is unusable until navigated', async () => {
     const backend = new StubBackend()
