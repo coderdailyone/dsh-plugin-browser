@@ -1,10 +1,21 @@
-# dsh-plugin-browser-use
+<p align="center">
+  <img src="https://raw.githubusercontent.com/coderdailyone/dsh-plugin-browser-use/main/docs/assets/banner.svg" alt="dsh-plugin-browser-use —— 给模型一个真浏览器,每一步都拴在安全策略的围栏里" width="100%">
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/dsh-plugin-browser-use"><img src="https://img.shields.io/npm/v/dsh-plugin-browser-use?color=6366f1&label=npm" alt="npm 版本"></a>
+  <a href="https://github.com/coderdailyone/dsh-plugin-browser-use/actions/workflows/ci.yml"><img src="https://github.com/coderdailyone/dsh-plugin-browser-use/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/node/v/dsh-plugin-browser-use?color=818cf8" alt="node 版本">
+  <img src="https://img.shields.io/npm/l/dsh-plugin-browser-use?color=22d3ee" alt="许可证">
+</p>
+
+<p align="center">
+  <a href="#安装">安装</a> · <a href="#工具一览">工具一览</a> · <a href="#安全模型">安全模型</a> · <a href="#配置">配置</a> · <a href="./README.md">English</a>
+</p>
 
 一个 [DeepSeek Harness](https://github.com/deepseek-ai/dsh) 插件,给模型一个真实浏览器——导航、点击、填表、读取、截图、多标签、下载——底层是 `playwright-core` 驱动的 Chromium。
 
 它的差异化是**安全优先的设计**:每个 URL 在**每次操作前、每次导航落地后**都会重新过一遍 host 标签白名单和私网拦截——重定向、链接点击、弹窗、后台加载、下载全部在内。并且没有任何工具接受模型给出的文件路径:插件写下的每个文件都落在受约束目录里,文件名由插件自己生成。
-
-[English](./README.md)
 
 ## 安装
 
@@ -63,6 +74,10 @@ dsh --profile web --dump-config   # 应能看到 "# == dsh-plugin-browser-use" �
 后台加载需要 profile 里有 jobs 注册表(`@deepseek-ai/dsh-jobs` + `@deepseek-ai/dsh-tool-jobs`);没有时该工具以 `BROWSER_JOBS_UNAVAILABLE` 关闭失败。任务以 `browser` 类别注册。
 
 ## 安全模型
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/coderdailyone/dsh-plugin-browser-use/main/docs/assets/policy-loop.svg" alt="策略回环:每次操作前检查,每次落地后复查;被拒页面永远到不了模型" width="100%">
+</p>
 
 - **持续复查。** 策略在每次操作前运行,每次导航后再运行一次——`browser_navigate` 检查的是*落地* URL,所以跨入被禁主机的重定向(或链接点击)即使请求的 URL 被允许也会被拒。后台加载同样有出发前和落地后双重检查。
 - **host 标签匹配,绝不子串。** `allowedHosts: ["example.com"]` 匹配 `example.com` 和 `sub.example.com`,但**不**匹配 `evil-example.com` 或 `evil.example.com.attacker.test`。

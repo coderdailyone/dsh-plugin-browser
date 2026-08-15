@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 440" role="img" aria-label="The policy loop: checked before every action, re-checked after every landing; refusals never reach the model">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#64748b"/>
+    </marker>
+    <marker id="arrowRose" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#fb7185"/>
+    </marker>
+  </defs>
+
+  <rect width="1200" height="440" rx="20" fill="#0f172a"/>
+
+  <text x="600" y="52" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="21" fill="#e2e8f0">The policy loop — checked <tspan fill="#a5b4fc">before every action</tspan>, re-checked <tspan fill="#a5b4fc">after every landing</tspan></text>
+
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16">
+    <!-- model -->
+    <rect x="40" y="110" width="200" height="72" rx="12" fill="#164e63" fill-opacity="0.35" stroke="#22d3ee" stroke-width="1.5"/>
+    <text x="140" y="140" text-anchor="middle" fill="#e2e8f0">model</text>
+    <text x="140" y="164" text-anchor="middle" fill="#67e8f9" font-size="14">browser_navigate(url)</text>
+
+    <!-- gate 1 -->
+    <rect x="272" y="110" width="268" height="72" rx="12" fill="#312e81" fill-opacity="0.45" stroke="#818cf8" stroke-width="1.5"/>
+    <text x="406" y="140" text-anchor="middle" fill="#e2e8f0">policy gate ①</text>
+    <text x="406" y="164" text-anchor="middle" fill="#a5b4fc" font-size="13">scheme · host labels · private-net</text>
+
+    <!-- chromium -->
+    <rect x="572" y="110" width="196" height="72" rx="12" fill="#1e293b" stroke="#64748b" stroke-width="1.5"/>
+    <text x="670" y="140" text-anchor="middle" fill="#e2e8f0">Chromium</text>
+    <text x="670" y="164" text-anchor="middle" fill="#94a3b8" font-size="14">goto · click · fill</text>
+
+    <!-- gate 2 -->
+    <rect x="808" y="110" width="196" height="72" rx="12" fill="#312e81" fill-opacity="0.45" stroke="#818cf8" stroke-width="1.5"/>
+    <text x="906" y="140" text-anchor="middle" fill="#e2e8f0">policy gate ②</text>
+    <text x="906" y="164" text-anchor="middle" fill="#a5b4fc" font-size="14">landed-URL re-check</text>
+
+    <!-- result -->
+    <rect x="1044" y="110" width="116" height="72" rx="12" fill="#164e63" fill-opacity="0.35" stroke="#22d3ee" stroke-width="1.5"/>
+    <text x="1102" y="140" text-anchor="middle" fill="#e2e8f0">bounded</text>
+    <text x="1102" y="164" text-anchor="middle" fill="#67e8f9" font-size="14">text → model</text>
+
+    <!-- forward arrows -->
+    <line x1="240" y1="146" x2="268" y2="146" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+    <line x1="544" y1="146" x2="568" y2="146" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+    <line x1="768" y1="146" x2="804" y2="146" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+    <line x1="1004" y1="146" x2="1040" y2="146" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+
+    <!-- refusal drops -->
+    <path d="M406 182 V262 H560" fill="none" stroke="#fb7185" stroke-width="2" marker-end="url(#arrowRose)"/>
+    <path d="M906 182 V262 H844" fill="none" stroke="#fb7185" stroke-width="2" marker-end="url(#arrowRose)"/>
+    <text x="418" y="228" font-size="13" fill="#fb7185">refused</text>
+    <text x="920" y="216" font-size="13" fill="#fb7185">redirect landed off-policy</text>
+
+    <!-- refusal box -->
+    <rect x="564" y="228" width="276" height="68" rx="12" fill="#4c0519" fill-opacity="0.45" stroke="#fb7185" stroke-width="1.5"/>
+    <text x="702" y="256" text-anchor="middle" fill="#fecdd3">isError · BROWSER_*</text>
+    <text x="702" y="280" text-anchor="middle" fill="#fda4af" font-size="14">the page never reaches the model</text>
+  </g>
+
+  <line x1="80" y1="340" x2="1120" y2="340" stroke="#1e293b" stroke-width="2"/>
+  <text x="600" y="386" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="17" fill="#94a3b8">popups · downloads · background loads · tab focus — <tspan fill="#cbd5e1">everything passes the same two gates</tspan></text>
+</svg>

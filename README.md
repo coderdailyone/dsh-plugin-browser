@@ -1,10 +1,21 @@
-# dsh-plugin-browser-use
+<p align="center">
+  <img src="https://raw.githubusercontent.com/coderdailyone/dsh-plugin-browser-use/main/docs/assets/banner.svg" alt="dsh-plugin-browser-use — a real browser for the DeepSeek Harness, fenced by a security-first policy" width="100%">
+</p>
+
+<p align="center">
+  <a href="https://www.npmjs.com/package/dsh-plugin-browser-use"><img src="https://img.shields.io/npm/v/dsh-plugin-browser-use?color=6366f1&label=npm" alt="npm version"></a>
+  <a href="https://github.com/coderdailyone/dsh-plugin-browser-use/actions/workflows/ci.yml"><img src="https://github.com/coderdailyone/dsh-plugin-browser-use/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <img src="https://img.shields.io/node/v/dsh-plugin-browser-use?color=818cf8" alt="node version">
+  <img src="https://img.shields.io/npm/l/dsh-plugin-browser-use?color=22d3ee" alt="license">
+</p>
+
+<p align="center">
+  <a href="#install">Install</a> · <a href="#the-tools">Tools</a> · <a href="#security-model">Security model</a> · <a href="#configuration">Configuration</a> · <a href="./README.zh.md">中文文档</a>
+</p>
 
 A [DeepSeek Harness](https://github.com/deepseek-ai/dsh) plugin that gives the model a real browser — navigate, click, fill, read, screenshot, tabs, downloads — backed by Chromium through `playwright-core`.
 
 Its differentiator is a **security-first design**: every URL is re-checked against a host-label allowlist and a private-network block **on every action and again after every navigation** — including redirects, link clicks, popups, background loads, and downloads. And no tool ever accepts a filesystem path from the model: every file the plugin writes lands in a constrained directory under a name the plugin picked itself.
-
-[中文文档](./README.zh.md)
 
 ## Install
 
@@ -63,6 +74,10 @@ Each agent session owns an isolated browser with an ordered tab list; calls from
 Background loads need the jobs registry (`@deepseek-ai/dsh-jobs` + `@deepseek-ai/dsh-tool-jobs`) in the profile; without it the tool fails closed with `BROWSER_JOBS_UNAVAILABLE`. Jobs register under kind `browser`.
 
 ## Security model
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/coderdailyone/dsh-plugin-browser-use/main/docs/assets/policy-loop.svg" alt="The policy loop: checked before every action, re-checked after every landing; refusals never reach the model" width="100%">
+</p>
 
 - **Continuous re-check.** The policy runs before every action, and again after every navigation — `browser_navigate` checks the *landed* URL, so a redirect (or a link click) that crosses into a disallowed host is refused even when the requested URL was allowed. Background loads get the same pre-flight and post-landing checks.
 - **Host-label matching, never substrings.** `allowedHosts: ["example.com"]` matches `example.com` and `sub.example.com` but **not** `evil-example.com` or `evil.example.com.attacker.test`.

@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 300" role="img" aria-label="dsh-plugin-browser-use — a real browser for the DeepSeek Harness, fenced by a security-first policy">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0f172a"/>
+      <stop offset="1" stop-color="#312e81"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#818cf8"/>
+      <stop offset="1" stop-color="#22d3ee"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="300" rx="20" fill="url(#bg)"/>
+
+  <!-- browser window with a shield -->
+  <g transform="translate(70,60)">
+    <rect width="180" height="180" rx="16" fill="#6366f1" opacity="0.12"/>
+    <rect width="180" height="180" rx="16" fill="none" stroke="#818cf8" stroke-width="2"/>
+    <line x1="2" y1="38" x2="178" y2="38" stroke="#818cf8" stroke-width="2"/>
+    <circle cx="26" cy="20" r="6" fill="#818cf8"/>
+    <circle cx="50" cy="20" r="6" fill="#818cf8"/>
+    <circle cx="74" cy="20" r="6" fill="#818cf8"/>
+    <path d="M90 56 L133 73 V106 C133 137 114 156 90 166 C66 156 47 137 47 106 V73 Z" fill="url(#accent)" opacity="0.92"/>
+    <polyline points="71,108 86,124 112,92" fill="none" stroke="#0f172a" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <!-- wordmark -->
+  <g font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace">
+    <text x="310" y="122" font-size="50" font-weight="700" fill="#f8fafc">dsh-plugin-browser-use</text>
+  </g>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif">
+    <text x="310" y="166" font-size="23" fill="#cbd5e1">A real browser for the DeepSeek Harness — fenced by a security-first policy.</text>
+    <text x="310" y="200" font-size="19" fill="#94a3b8">给模型一个真浏览器，每一步都拴在安全策略的围栏里。</text>
+  </g>
+
+  <!-- feature chips -->
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="16">
+    <rect x="310" y="226" width="212" height="34" rx="17" fill="none" stroke="#4338ca" stroke-width="1.5"/>
+    <text x="330" y="248" fill="#34d399">✓</text>
+    <text x="350" y="248" fill="#a5b4fc">host-label allowlist</text>
+
+    <rect x="538" y="226" width="316" height="34" rx="17" fill="none" stroke="#4338ca" stroke-width="1.5"/>
+    <text x="558" y="248" fill="#34d399">✓</text>
+    <text x="578" y="248" fill="#a5b4fc">re-checked after every navigation</text>
+
+    <rect x="870" y="226" width="262" height="34" rx="17" fill="none" stroke="#4338ca" stroke-width="1.5"/>
+    <text x="890" y="248" fill="#34d399">✓</text>
+    <text x="910" y="248" fill="#a5b4fc">no model-controlled paths</text>
+  </g>
+</svg>
