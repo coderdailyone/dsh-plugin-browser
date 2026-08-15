@@ -6,12 +6,6 @@ Its differentiator is a **security-first navigation policy**: every URL is re-ch
 
 [中文文档](./README.zh.md)
 
-## The name, its lineage, and non-affiliation
-
-This project is **not affiliated with the [browser-use](https://github.com/browser-use/browser-use) project or company**. Under the hood it drives Chromium directly through `playwright-core`; no browser-use code is involved.
-
-The name claims a lineage instead. This plugin's security core is the positive application of its author's vulnerability research into browser-agent navigation policies — including the Critical-severity `allowed_domains` bypass reported against browser-use (GHSA-c82q-c8wq-834v, credited to coderdailyone). The policy here (host-label matching, continuous re-checks after every navigation, fail-closed parsing) is what that research concluded a browser agent should be doing.
-
 ## Install
 
 ```bash
@@ -94,3 +88,7 @@ Layout: `src/policy.ts` (pure URL policy) → `src/session.ts` (browser session,
 ## License
 
 MIT
+
+## Non-affiliation
+
+This project is **not affiliated with the [browser-use](https://github.com/browser-use/browser-use) project or company**. Under the hood it drives Chromium directly through `playwright-core`; no browser-use code is involved.

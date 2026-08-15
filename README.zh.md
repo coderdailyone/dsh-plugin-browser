@@ -6,12 +6,6 @@
 
 [English](./README.md)
 
-## 名字、渊源与非关联声明
-
-本项目**与 [browser-use](https://github.com/browser-use/browser-use) 项目及公司没有任何关联**,底层通过 `playwright-core` 直接驱动 Chromium,不包含任何 browser-use 代码。
-
-取这个名字是认领一段渊源:本插件的安全核心,正是作者对浏览器 agent 导航策略漏洞研究的正面应用——其中包括报告给 browser-use 的 Critical 级 `allowed_domains` 绕过漏洞(GHSA-c82q-c8wq-834v,署名 coderdailyone)。这里的策略设计(host 标签匹配、每次导航后连续复查、解析失败即拒)就是那项研究得出的"浏览器 agent 应该怎么做"。
-
 ## 安装
 
 ```bash
@@ -94,3 +88,7 @@ DSH_BROWSER_LIVE=1 npm test
 ## 许可证
 
 MIT
+
+## 非关联声明
+
+本项目**与 [browser-use](https://github.com/browser-use/browser-use) 项目及公司没有任何关联**,底层通过 `playwright-core` 直接驱动 Chromium,不包含任何 browser-use 代码。

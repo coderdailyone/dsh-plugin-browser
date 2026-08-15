@@ -21,7 +21,7 @@ export const name = 'dsh-plugin-browser-use'
 export const inject = ['tools']
 
 /** Plugin version stamped into the default User-Agent. Keep in lockstep with package.json. */
-const VERSION = '0.2.0'
+const VERSION = '0.2.1'
 
 /** Default bound on one returned page text (the `maxTextChars` config). */
 export const DEFAULT_MAX_TEXT_CHARS = 20_000
