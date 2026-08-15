@@ -1,11 +1,11 @@
 /**
- * The five model-facing browser tools and the owner-isolated session registry
- * they dispatch through. Each agent session gets its own lazily-launched
- * browser page (owner isolation); calls on one owner's page serialize through
- * a promise chain, matching a human driving one tab. Every canonical return is
- * a programmatic object (`url`/`title`/`statusCode`/`text`/`truncated`), so
- * Code Mode reaches the fields for free; `output.render` writes the
- * human/model-facing text.
+ * The model-facing browser tools and the owner-isolated session registry they
+ * dispatch through. Each agent session gets its own lazily-launched browser
+ * with an ordered tab list (owner isolation); calls on one owner's browser
+ * serialize through a promise chain, matching a human driving one window.
+ * Every canonical return is a programmatic object (`url`/`title`/`statusCode`/
+ * `text`/`truncated`/tab rows), so Code Mode reaches the fields for free;
+ * `output.render` writes the human/model-facing text.
  * @module dsh-plugin-browser-use/tool
  */
 
@@ -327,9 +327,161 @@ export function createBrowserTools(registry: BrowserSessions, options: BrowserTo
     },
   })
 
+  const tabNew = defineTool({
+    name: 'browser_tab_new',
+    description:
+      'Open a new browser tab and make it active, optionally navigating it. The URL passes the same navigation policy as browser_navigate; a refused URL opens no tab.',
+    parameters: {
+      url: { type: 'string', description: 'Optional absolute http(s) URL to open in the new tab. Omit for a blank tab.' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          index: { type: 'integer', required: true, description: 'Index of the new tab.' },
+          url: { type: 'string', required: true, description: 'The landed URL (about:blank for a blank tab).' },
+          title: { type: 'string', required: true },
+          statusCode: { type: 'integer' },
+        },
+      },
+      render: (_args, value) =>
+        textBlock(value.url === 'about:blank' ? `Opened blank tab ${value.index}.` : `Tab ${value.index}: ${value.url}\nTitle: ${value.title}`),
+      presentationMeta: (_args, value) => ({ url: value.url, title: value.title }),
+    },
+    timeoutMs: options.navigationTimeoutMs + TIMEOUT_HEADROOM_MS,
+    async execute(args, exec) {
+      const owned = registry.for(ownerKeyOf(exec))
+      return raceAbort(
+        exec.signal,
+        owned.run(async session => {
+          const opened = await session.tabNew(args.url)
+          return {
+            index: opened.index,
+            url: opened.url,
+            title: opened.title,
+            ...opened.statusCode !== undefined ? { statusCode: opened.statusCode } : {},
+          }
+        }),
+      )
+    },
+    presentCall: args => ({ card: 'generic', title: args.url === undefined ? 'New tab' : `New tab ${args.url}`, kind: 'fetch', rawInput: args.url }),
+    presentResult: (_args, result) => {
+      if (result.isError) return undefined
+      const title = readingTitle(result.meta)
+      return title === undefined ? undefined : { card: 'generic', title }
+    },
+  })
+
+  const tabList = defineTool({
+    name: 'browser_tab_list',
+    description:
+      'List this session\'s browser tabs: index, URL, which one is active, and whether each clears the navigation policy. Titles are read only for policy-cleared tabs.',
+    parameters: {},
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          tabs: {
+            type: 'array',
+            required: true,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                index: { type: 'integer', required: true },
+                active: { type: 'boolean', required: true },
+                url: { type: 'string', required: true },
+                allowed: { type: 'boolean', required: true, description: 'Whether the tab URL clears the navigation policy.' },
+                title: { type: 'string' },
+              },
+            },
+          },
+        },
+      },
+      render: (_args, value) =>
+        textBlock(
+          value.tabs.length === 0
+            ? 'No tabs open.'
+            : value.tabs
+              .map(tab => `${tab.active ? '*' : ' '} [${tab.index}] ${tab.url}${tab.title !== undefined ? ` — ${tab.title}` : ''}${tab.allowed ? '' : ' (off-policy)'}`)
+              .join('\n'),
+        ),
+      presentationMeta: (_args, value) => ({ count: value.tabs.length }),
+    },
+    timeoutMs: options.actionTimeoutMs + TIMEOUT_HEADROOM_MS,
+    async execute(_args, exec) {
+      const owned = registry.for(ownerKeyOf(exec))
+      return raceAbort(exec.signal, owned.run(async session => ({ tabs: await session.tabList() })))
+    },
+    presentCall: () => ({ card: 'generic', title: 'List tabs', kind: 'read', rawInput: undefined }),
+    presentResult: () => undefined,
+  })
+
+  const tabSelect = defineTool({
+    name: 'browser_tab_select',
+    description:
+      'Make a tab active by index (see browser_tab_list). Selecting a tab parked on a policy-refused host is refused; close such tabs instead.',
+    parameters: {
+      index: { type: 'integer', required: true, description: 'Tab index from browser_tab_list.' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          index: { type: 'integer', required: true },
+          url: { type: 'string', required: true },
+          title: { type: 'string', required: true },
+        },
+      },
+      render: (_args, value) => textBlock(`Active tab ${value.index}: ${value.url}\nTitle: ${value.title}`),
+      presentationMeta: (_args, value) => ({ url: value.url, title: value.title }),
+    },
+    timeoutMs: options.actionTimeoutMs + TIMEOUT_HEADROOM_MS,
+    async execute(args, exec) {
+      const owned = registry.for(ownerKeyOf(exec))
+      return raceAbort(exec.signal, owned.run(session => session.tabSelect(args.index)))
+    },
+    presentCall: args => ({ card: 'generic', title: `Select tab ${args.index}`, kind: 'other', rawInput: args.index }),
+    presentResult: (_args, result) => {
+      if (result.isError) return undefined
+      const title = readingTitle(result.meta)
+      return title === undefined ? undefined : { card: 'generic', title }
+    },
+  })
+
+  const tabClose = defineTool({
+    name: 'browser_tab_close',
+    description: 'Close one tab (the active one when no index is given). The browser session survives with the remaining tabs.',
+    parameters: {
+      index: { type: 'integer', description: 'Tab index to close; defaults to the active tab.' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          closed: { type: 'boolean', required: true },
+          remaining: { type: 'integer', required: true, description: 'How many tabs stay open.' },
+        },
+      },
+      render: (_args, value) => textBlock(`Tab closed; ${value.remaining} remaining.`),
+      presentationMeta: () => ({}),
+    },
+    timeoutMs: options.actionTimeoutMs + TIMEOUT_HEADROOM_MS,
+    async execute(args, exec) {
+      const owned = registry.for(ownerKeyOf(exec))
+      return raceAbort(exec.signal, owned.run(session => session.tabClose(args.index)))
+    },
+    presentCall: args => ({ card: 'generic', title: args.index === undefined ? 'Close tab' : `Close tab ${args.index}`, kind: 'other', rawInput: args.index }),
+    presentResult: () => undefined,
+  })
+
   const close = defineTool({
     name: 'browser_close',
-    description: 'Close this session\'s browser page (idempotent). A later navigation opens a fresh page.',
+    description: 'Close this session\'s whole browser — every tab — idempotently. A later navigation opens a fresh browser.',
     parameters: {},
     output: {
       schema: {
@@ -351,5 +503,5 @@ export function createBrowserTools(registry: BrowserSessions, options: BrowserTo
     presentResult: (_args, result) => (result.isError ? undefined : { card: 'generic', title: 'Browser closed' }),
   })
 
-  return [navigate, click, fill, readText, close]
+  return [navigate, click, fill, readText, tabNew, tabList, tabSelect, tabClose, close]
 }

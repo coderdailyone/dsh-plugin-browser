@@ -50,6 +50,33 @@ class StubPage implements PageHandle {
     void fn
     return this.textValue as T
   }
+
+  async ariaSnapshot(): Promise<string> {
+    return '- document'
+  }
+
+  async screenshot(): Promise<void> {}
+
+  async pdf(): Promise<void> {}
+
+  async setInputFiles(): Promise<void> {}
+
+  closed = false
+
+  async close(): Promise<void> {
+    this.closed = true
+  }
+
+  isClosed(): boolean {
+    return this.closed
+  }
+}
+
+/** Handle plumbing shared by every stub handle in this file. */
+const handleExtras = {
+  onPage: () => {},
+  onDownload: () => {},
+  saveStorageState: async () => {},
 }
 
 /** Backend double counting launches and closes. */
@@ -61,15 +88,16 @@ class StubBackend implements BrowserBackend {
   async launch(): Promise<BrowserHandle> {
     this.launchCount += 1
     const backend = this
-    const page = new StubPage()
-    this.pages.push(page)
     return {
       async newPage() {
+        const page = new StubPage()
+        backend.pages.push(page)
         return page
       },
       async close() {
         backend.closeCount += 1
       },
+      ...handleExtras,
     }
   }
 }
@@ -142,7 +170,11 @@ describe('plugin composition', () => {
   it('registers all five tools with the expected names', async () => {
     const { ctx, fiber } = await composePlugin()
     const names = ctx.tools.schemas().map(schema => schema.name)
-    for (const expected of ['browser_navigate', 'browser_click', 'browser_fill', 'browser_read_text', 'browser_close']) {
+    for (const expected of [
+      'browser_navigate', 'browser_click', 'browser_fill', 'browser_read_text',
+      'browser_tab_new', 'browser_tab_list', 'browser_tab_select', 'browser_tab_close',
+      'browser_close',
+    ]) {
       expect(names, expected).toContain(expected)
     }
     expect(plugin.inject).toEqual(['tools'])
@@ -207,6 +239,7 @@ describe('tool pipeline over a stub backend', () => {
       const handle: BrowserHandle = {
         newPage: async () => page,
         close: async () => {},
+        ...handleExtras,
       }
       return handle
     }
@@ -274,6 +307,34 @@ describe('tool pipeline over a stub backend', () => {
     await fiber.dispose()
   })
 
+  it('drives a full tab flow through the registry: new, list, select, close', async () => {
+    const { ctx, fiber } = await composeStub()
+    await ctx.tools.execute(execution('browser_navigate', { url: 'https://example.com/a' }, 'owner-a'))
+    const opened = await ctx.tools.execute(execution('browser_tab_new', { url: 'https://example.org/b' }, 'owner-a'))
+    expect(opened.isError).toBe(false)
+    if (!opened.isError) expect(opened.value).toMatchObject({ index: 1, url: 'https://example.org/b' })
+    const listed = await ctx.tools.execute(execution('browser_tab_list', {}, 'owner-a'))
+    expect(listed.isError).toBe(false)
+    if (!listed.isError) {
+      expect(listed.value).toEqual({
+        tabs: [
+          { index: 0, active: false, url: 'https://example.com/a', allowed: true, title: 'Stub Title' },
+          { index: 1, active: true, url: 'https://example.org/b', allowed: true, title: 'Stub Title' },
+        ],
+      })
+    }
+    const selected = await ctx.tools.execute(execution('browser_tab_select', { index: 0 }, 'owner-a'))
+    expect(selected.isError).toBe(false)
+    if (!selected.isError) expect(selected.value).toEqual({ index: 0, url: 'https://example.com/a', title: 'Stub Title' })
+    const closedTab = await ctx.tools.execute(execution('browser_tab_close', { index: 1 }, 'owner-a'))
+    expect(closedTab.isError).toBe(false)
+    if (!closedTab.isError) expect(closedTab.value).toEqual({ closed: true, remaining: 1 })
+    const bad = await ctx.tools.execute(execution('browser_tab_select', { index: 7 }, 'owner-a'))
+    expect(bad.isError).toBe(true)
+    expect(resultText(bad)).toContain('BROWSER_NO_SUCH_TAB')
+    await fiber.dispose()
+  })
+
   it('an aborted signal settles the call as an error without killing the shared browser', async () => {
     const backend = new StubBackend()
     const { ctx, fiber } = await composeStub(allowAll, backend)
@@ -287,7 +348,7 @@ describe('tool pipeline over a stub backend', () => {
     const originalLaunch = backend.launch.bind(backend)
     backend.launch = async () => {
       const page = gated
-      return { newPage: async () => page, close: async () => {} }
+      return { newPage: async () => page, close: async () => {}, ...handleExtras }
     }
     void originalLaunch
     const pending = ctx.tools.execute(execution('browser_navigate', { url: 'https://example.com/slow' }, 'owner-a', controller.signal))

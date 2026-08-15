@@ -25,16 +25,22 @@ class StubPage implements PageHandle {
   urlValue = 'about:blank'
   titleValue = 'Stub Title'
   textValue = 'stub page text'
+  snapshotValue = '- document'
   gotoCalls: { url: string; options: unknown }[] = []
   clickCalls: { selector: string }[] = []
   fillCalls: { selector: string; value: string }[] = []
+  screenshotCalls: string[] = []
+  pdfCalls: string[] = []
+  setFilesCalls: { selector: string; path: string }[] = []
   evaluateCalls = 0
+  titleCalls = 0
   gotoResult: { status(): number } | null = { status: () => 200 }
   gotoError: unknown
   clickError: unknown
   fillError: unknown
   evaluateError: unknown
   titleError: unknown
+  closed = false
   /** URL the page "lands" on after goto (redirect simulation). */
   landOn: string | undefined
 
@@ -50,6 +56,7 @@ class StubPage implements PageHandle {
   }
 
   async title(): Promise<string> {
+    this.titleCalls += 1
     if (this.titleError !== undefined) throw this.titleError
     return this.titleValue
   }
@@ -72,14 +79,46 @@ class StubPage implements PageHandle {
     if (this.evaluateError !== undefined) throw this.evaluateError
     return this.textValue as T
   }
+
+  async ariaSnapshot(options: { timeout: number }): Promise<string> {
+    void options
+    return this.snapshotValue
+  }
+
+  async screenshot(path: string, options: { timeout: number }): Promise<void> {
+    void options
+    this.screenshotCalls.push(path)
+  }
+
+  async pdf(path: string): Promise<void> {
+    this.pdfCalls.push(path)
+  }
+
+  async setInputFiles(selector: string, path: string, options: { timeout: number }): Promise<void> {
+    void options
+    this.setFilesCalls.push({ selector, path })
+  }
+
+  async close(): Promise<void> {
+    this.closed = true
+  }
+
+  isClosed(): boolean {
+    return this.closed
+  }
 }
 
 /** Backend double recording launches and handing out stub pages. */
 class StubBackend implements BrowserBackend {
   launchCount = 0
   page!: StubPage
+  /** Every page ever handed out or adopted, in order. */
+  pages: StubPage[] = []
   launchError: unknown
   closeCalls = 0
+  savedStates: string[] = []
+  private pageListeners: ((page: PageHandle) => void)[] = []
+  private downloadListeners: ((download: import('../src/session.js').DownloadEvent) => void)[] = []
   /** When armed via `deferClose()`, a pending `close()` blocks until released. */
   private releaseClose: (() => void) | undefined
 
@@ -90,6 +129,29 @@ class StubBackend implements BrowserBackend {
   resetPage(): StubPage {
     this.page = new StubPage()
     return this.page
+  }
+
+  /** Preconfigured pages handed out by upcoming `newPage()` calls, FIFO. */
+  private queued: StubPage[] = []
+
+  queuePage(page: StubPage): StubPage {
+    this.queued.push(page)
+    return page
+  }
+
+  takeQueued(): StubPage | undefined {
+    return this.queued.shift()
+  }
+
+  /** Simulate the browser opening a page on its own (popup / window.open). */
+  emitPopup(page: StubPage): StubPage {
+    this.pages.push(page)
+    for (const listener of this.pageListeners) listener(page)
+    return page
+  }
+
+  emitDownload(download: import('../src/session.js').DownloadEvent): void {
+    for (const listener of this.downloadListeners) listener(download)
   }
 
   /** Arm the gate so the next backend close hangs until `finishClose()`. */
@@ -108,10 +170,22 @@ class StubBackend implements BrowserBackend {
     this.launchCount += 1
     if (this.launchError !== undefined) throw this.launchError
     const backend = this
-    const page = this.page
+    let created = 0
     return {
       async newPage() {
+        created += 1
+        const page = backend.takeQueued() ?? (created === 1 ? backend.page : new StubPage())
+        backend.pages.push(page)
         return page
+      },
+      onPage(listener) {
+        backend.pageListeners.push(listener)
+      },
+      onDownload(listener) {
+        backend.downloadListeners.push(listener)
+      },
+      async saveStorageState(path: string) {
+        backend.savedStates.push(path)
       },
       async close() {
         backend.closeCalls += 1
@@ -291,5 +365,121 @@ describe('BrowserSession', () => {
     const session = new BrowserSession(backend, makeConfig())
     await session.close()
     expect(backend.closeCalls).toBe(0)
+  })
+})
+
+describe('tabs', () => {
+  it('tabNew without a URL opens a blank tab that is unusable until navigated', async () => {
+    const backend = new StubBackend()
+    const session = new BrowserSession(backend, makeConfig())
+    const opened = await session.tabNew()
+    expect(opened).toEqual({ index: 0, url: 'about:blank', title: '' })
+    await expectBrowserError(session.readText(), 'BROWSER_NO_PAGE')
+    const outcome = await session.navigate('https://example.com/')
+    expect(outcome.url).toBe('https://example.com/')
+  })
+
+  it('tabNew enforces the policy before creating any page', async () => {
+    const backend = new StubBackend()
+    const session = new BrowserSession(backend, makeConfig({ policy: exampleOnly }))
+    await expectBrowserError(session.tabNew('https://evil.test/'), 'BROWSER_HOST_NOT_ALLOWED')
+    expect(backend.launchCount).toBe(0)
+    expect(backend.pages).toHaveLength(0)
+  })
+
+  it('tabNew with a URL opens, navigates, and becomes the active tab', async () => {
+    const backend = new StubBackend()
+    const session = new BrowserSession(backend, makeConfig())
+    await session.navigate('https://example.com/first')
+    const opened = await session.tabNew('https://example.org/second')
+    expect(opened.index).toBe(1)
+    expect(opened.url).toBe('https://example.org/second')
+    // Subsequent reads hit the new tab, not the first one.
+    const reading = await session.readText()
+    expect(reading.url).toBe('https://example.org/second')
+    expect(backend.pages[1]?.gotoCalls.map(call => call.url)).toEqual(['https://example.org/second'])
+  })
+
+  it('CRITICAL: a redirect on a new tab landing off the allowlist is refused', async () => {
+    const backend = new StubBackend()
+    const session = new BrowserSession(backend, makeConfig({ policy: exampleOnly }))
+    await session.navigate('https://example.com/first')
+    const redirecting = new StubPage()
+    redirecting.landOn = 'https://evil.test/landed'
+    backend.queuePage(redirecting)
+    const error = await session.tabNew('https://example.com/redirector').catch((reason: unknown) => reason)
+    expect(error).toBeInstanceOf(BrowserError)
+    expect((error as BrowserError).code).toBe('BROWSER_HOST_NOT_ALLOWED')
+    expect(redirecting.gotoCalls).toHaveLength(1)
+  })
+
+  it('tabList reports urls and active flag, and reads titles only for policy-cleared tabs', async () => {
+    const backend = new StubBackend()
+    const session = new BrowserSession(backend, makeConfig({ policy: exampleOnly }))
+    await session.navigate('https://example.com/first')
+    const popup = new StubPage()
+    popup.urlValue = 'https://evil.test/popup'
+    backend.emitPopup(popup)
+    const rows = await session.tabList()
+    expect(rows).toEqual([
+      { index: 0, active: true, url: 'https://example.com/first', allowed: true, title: 'Stub Title' },
+      { index: 1, active: false, url: 'https://evil.test/popup', allowed: false },
+    ])
+    // The off-policy popup's title was never even read.
+    expect(popup.titleCalls).toBe(0)
+  })
+
+  it('tabSelect switches the active tab and refuses off-policy or missing tabs', async () => {
+    const backend = new StubBackend()
+    const session = new BrowserSession(backend, makeConfig({ policy: exampleOnly }))
+    await session.navigate('https://example.com/first')
+    await session.tabNew('https://sub.example.com/second')
+    const selected = await session.tabSelect(0)
+    expect(selected).toEqual({ index: 0, url: 'https://example.com/first', title: 'Stub Title' })
+    const reading = await session.readText()
+    expect(reading.url).toBe('https://example.com/first')
+    const popup = new StubPage()
+    popup.urlValue = 'https://evil.test/popup'
+    backend.emitPopup(popup)
+    await expectBrowserError(session.tabSelect(2), 'BROWSER_HOST_NOT_ALLOWED')
+    await expectBrowserError(session.tabSelect(9), 'BROWSER_NO_SUCH_TAB')
+    await expectBrowserError(session.tabSelect(-1), 'BROWSER_NO_SUCH_TAB')
+  })
+
+  it('tabClose closes one tab, adjusts the active index, and the session survives', async () => {
+    const backend = new StubBackend()
+    const session = new BrowserSession(backend, makeConfig())
+    await session.navigate('https://example.com/a')
+    await session.tabNew('https://example.com/b')
+    await session.tabNew('https://example.com/c')
+    // Close a tab before the active one: active stays on /c.
+    const closedFirst = await session.tabClose(0)
+    expect(closedFirst).toEqual({ closed: true, remaining: 2 })
+    expect((await session.readText()).url).toBe('https://example.com/c')
+    // Close the active tab: focus falls back to the survivor.
+    await session.tabClose()
+    expect((await session.readText()).url).toBe('https://example.com/b')
+    // Closing the last tab leaves the session pageless, then navigate reopens.
+    await session.tabClose()
+    await expectBrowserError(session.readText(), 'BROWSER_NO_PAGE')
+    const reopened = await session.navigate('https://example.com/again')
+    expect(reopened.url).toBe('https://example.com/again')
+    expect(backend.closeCalls).toBe(0)
+  })
+
+  it('prunes tabs the browser closed on its own, keeping the active tab stable', async () => {
+    const backend = new StubBackend()
+    const session = new BrowserSession(backend, makeConfig())
+    await session.navigate('https://example.com/keep')
+    const popup = new StubPage()
+    popup.urlValue = 'https://example.com/popup'
+    backend.emitPopup(popup)
+    expect((await session.tabList())).toHaveLength(2)
+    popup.closed = true
+    const rows = await session.tabList()
+    expect(rows).toEqual([
+      { index: 0, active: true, url: 'https://example.com/keep', allowed: true, title: 'Stub Title' },
+    ])
+    expect((await session.readText()).url).toBe('https://example.com/keep')
   })
 })

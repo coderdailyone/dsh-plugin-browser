@@ -10,7 +10,7 @@
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { BrowserBackend, BrowserHandle, PageHandle } from './session.js'
+import type { BrowserBackend, BrowserHandle, DownloadEvent, PageHandle } from './session.js'
 
 /** Resolved launch options for the Chromium backend. */
 export interface PlaywrightBackendOptions {
@@ -24,6 +24,8 @@ export interface PlaywrightBackendOptions {
   proxyServer?: string
   /** Comma-separated hosts that bypass the proxy. */
   proxyBypass?: string
+  /** Playwright storage-state file: loaded at context creation when it exists (saving is the session's call). */
+  storageStatePath?: string
 }
 
 /**
@@ -117,18 +119,70 @@ export class PlaywrightBackend implements BrowserBackend {
       ...proxy !== undefined ? { proxy } : {},
       ...executablePath !== undefined ? { executablePath } : {},
     })
-    const context = await browser.newContext({ userAgent: this.options.userAgent })
+    const storageStatePath = this.options.storageStatePath
+    const context = await browser.newContext({
+      userAgent: this.options.userAgent,
+      acceptDownloads: true,
+      ...storageStatePath !== undefined && existsSync(storageStatePath) ? { storageState: storageStatePath } : {},
+    })
+
+    type PlaywrightPage = Awaited<ReturnType<typeof context.newPage>>
+    // One wrapper per underlying page, so popup adoption and tab dedup can
+    // rely on handle identity.
+    const wrappers = new Map<PlaywrightPage, PageHandle>()
+    const pageListeners: ((page: PageHandle) => void)[] = []
+    const downloadListeners: ((download: DownloadEvent) => void)[] = []
+
+    const wrap = (page: PlaywrightPage): PageHandle => {
+      const existing = wrappers.get(page)
+      if (existing !== undefined) return existing
+      page.on('download', download => {
+        const event: DownloadEvent = {
+          url: download.url(),
+          suggestedFilename: download.suggestedFilename(),
+          saveAs: path => download.saveAs(path),
+        }
+        for (const listener of downloadListeners) listener(event)
+      })
+      const handle: PageHandle = {
+        goto: (url, opts) => page.goto(url, opts),
+        url: () => page.url(),
+        title: () => page.title(),
+        click: (selector, opts) => page.click(selector, opts),
+        fill: (selector, value, opts) => page.fill(selector, value, opts),
+        evaluate: <T>(fn: string) => page.evaluate(fn) as Promise<T>,
+        ariaSnapshot: opts => page.locator('body').ariaSnapshot({ timeout: opts.timeout }),
+        screenshot: async (path, opts) => {
+          await page.screenshot({ path, timeout: opts.timeout })
+        },
+        pdf: async path => {
+          await page.pdf({ path })
+        },
+        setInputFiles: (selector, path, opts) => page.setInputFiles(selector, path, opts),
+        close: () => page.close(),
+        isClosed: () => page.isClosed(),
+      }
+      wrappers.set(page, handle)
+      return handle
+    }
+
+    context.on('page', page => {
+      const wrapped = wrap(page)
+      for (const listener of pageListeners) listener(wrapped)
+    })
+
     return {
       async newPage(): Promise<PageHandle> {
-        const page = await context.newPage()
-        return {
-          goto: (url, opts) => page.goto(url, opts),
-          url: () => page.url(),
-          title: () => page.title(),
-          click: (selector, opts) => page.click(selector, opts),
-          fill: (selector, value, opts) => page.fill(selector, value, opts),
-          evaluate: <T>(fn: string) => page.evaluate(fn) as Promise<T>,
-        }
+        return wrap(await context.newPage())
+      },
+      onPage(listener) {
+        pageListeners.push(listener)
+      },
+      onDownload(listener) {
+        downloadListeners.push(listener)
+      },
+      async saveStorageState(path: string): Promise<void> {
+        await context.storageState({ path })
       },
       async close(): Promise<void> {
         try {
