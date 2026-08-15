@@ -413,6 +413,44 @@ describe('snapshot and artifacts', () => {
   })
 })
 
+describe('background loads', () => {
+  it('loads in a fresh tab without stealing focus and settles with the landed reading', async () => {
+    const backend = new StubBackend()
+    const session = new BrowserSession(backend, makeConfig())
+    await session.navigate('https://example.com/front')
+    const started = await session.startBackgroundLoad('https://example.org/slow')
+    expect(started.index).toBe(1)
+    // The active tab is untouched while the load runs.
+    expect((await session.readText()).url).toBe('https://example.com/front')
+    const reading = await started.settled
+    expect(reading.url).toBe('https://example.org/slow')
+    expect(reading.text).toBe('stub page text')
+    const rows = await session.tabList()
+    expect(rows.map(row => row.active)).toEqual([true, false])
+  })
+
+  it('enforces the policy before creating the background tab', async () => {
+    const backend = new StubBackend()
+    const session = new BrowserSession(backend, makeConfig({ policy: exampleOnly }))
+    await session.navigate('https://example.com/front')
+    await expectBrowserError(session.startBackgroundLoad('https://evil.test/'), 'BROWSER_HOST_NOT_ALLOWED')
+    expect(backend.pages).toHaveLength(1)
+  })
+
+  it('CRITICAL: a background load redirecting off the allowlist rejects through settled', async () => {
+    const backend = new StubBackend()
+    const session = new BrowserSession(backend, makeConfig({ policy: exampleOnly }))
+    await session.navigate('https://example.com/front')
+    const redirecting = new StubPage()
+    redirecting.landOn = 'https://evil.test/landed'
+    backend.queuePage(redirecting)
+    const started = await session.startBackgroundLoad('https://example.com/redirector')
+    const error = await started.settled.catch((reason: unknown) => reason)
+    expect(error).toBeInstanceOf(BrowserError)
+    expect((error as BrowserError).code).toBe('BROWSER_HOST_NOT_ALLOWED')
+  })
+})
+
 describe('downloads, storage state, and uploads', () => {
   function fakeDownload(url: string, suggestedFilename: string) {
     const saved: string[] = []

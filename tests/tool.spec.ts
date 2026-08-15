@@ -171,7 +171,7 @@ describe('plugin composition', () => {
     const { ctx, fiber } = await composePlugin()
     const names = ctx.tools.schemas().map(schema => schema.name)
     for (const expected of [
-      'browser_navigate', 'browser_click', 'browser_fill', 'browser_read_text',
+      'browser_navigate', 'browser_navigate_background', 'browser_click', 'browser_fill', 'browser_read_text',
       'browser_read_snapshot', 'browser_screenshot', 'browser_pdf',
       'browser_downloads', 'browser_upload',
       'browser_tab_new', 'browser_tab_list', 'browser_tab_select', 'browser_tab_close',
@@ -327,6 +327,36 @@ describe('tool pipeline over a stub backend', () => {
     // The tools take no path parameter at all — a model cannot supply one.
     const screenshotSchema = ctx.tools.schemas().find(schema => schema.name === 'browser_screenshot')
     expect(Object.keys((screenshotSchema?.parameters as { properties?: object })?.properties ?? {})).toEqual([])
+    await fiber.dispose()
+  })
+
+  it('browser_navigate_background registers a jobs entry and reports tab index + job id', async () => {
+    const startedJobs: { label: string; kind: string; hooks: { cancel(): void; done: Promise<{ status: string; detail?: string; output?: string }> } }[] = []
+    const fakeJobs = {
+      start(input: { kind: string; label: string; run(): { cancel(): void; done: Promise<{ status: string; detail?: string; output?: string }> } }): string {
+        const hooks = input.run()
+        startedJobs.push({ label: input.label, kind: input.kind, hooks })
+        return `browser-${startedJobs.length}`
+      },
+    }
+    const { ctx, fiber } = await composeStub(allowAll, new StubBackend(), { getJobs: () => fakeJobs })
+    await ctx.tools.execute(execution('browser_navigate', { url: 'https://example.com/front' }, 'owner-a'))
+    const result = await ctx.tools.execute(execution('browser_navigate_background', { url: 'https://example.org/slow' }, 'owner-a'))
+    expect(result.isError).toBe(false)
+    if (!result.isError) expect(result.value).toEqual({ jobId: 'browser-1', index: 1, url: 'https://example.org/slow' })
+    expect(startedJobs[0]?.kind).toBe('browser')
+    expect(startedJobs[0]?.label).toBe('load https://example.org/slow')
+    const outcome = await startedJobs[0]?.hooks.done
+    expect(outcome).toEqual({ status: 'completed', detail: 'landed: https://example.org/slow', output: 'page body text' })
+    await fiber.dispose()
+  })
+
+  it('browser_navigate_background without a jobs service fails closed as isError', async () => {
+    const { ctx, fiber } = await composeStub()
+    await ctx.tools.execute(execution('browser_navigate', { url: 'https://example.com/' }, 'owner-a'))
+    const result = await ctx.tools.execute(execution('browser_navigate_background', { url: 'https://example.org/' }, 'owner-a'))
+    expect(result.isError).toBe(true)
+    expect(resultText(result)).toContain('BROWSER_JOBS_UNAVAILABLE')
     await fiber.dispose()
   })
 

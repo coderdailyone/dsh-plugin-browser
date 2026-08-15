@@ -389,6 +389,10 @@ export class BrowserSession {
   async readText(): Promise<PageReading> {
     const page = this.requirePage()
     this.enforceInteractive(page)
+    return this.readTextOf(page)
+  }
+
+  private async readTextOf(page: PageHandle): Promise<PageReading> {
     const title = await this.readTitleOf(page)
     let raw: string
     try {
@@ -404,6 +408,36 @@ export class BrowserSession {
       text: bounded.text,
       truncated: bounded.truncated,
     }
+  }
+
+  /**
+   * Begin loading `rawUrl` in a fresh tab that does NOT take focus, so the
+   * active tab stays usable while the page loads. The policy runs before the
+   * tab is created; the returned `settled` promise resolves with the landed
+   * reading (post-landing policy re-check included) or rejects with the same
+   * error taxonomy as `navigate`. The load itself runs outside the per-owner
+   * call serialization — that is the point.
+   */
+  async startBackgroundLoad(rawUrl: string): Promise<{ index: number; settled: Promise<PageReading> }> {
+    this.assertOpen()
+    const target = this.enforce(rawUrl)
+    const handle = await this.ensureHandle()
+    this.prune()
+    let page: PageHandle
+    try {
+      page = await handle.newPage()
+    } catch (error: unknown) {
+      throw new BrowserError(`failed to open a page: ${String(error)}`, 'BROWSER_LAUNCH_FAILED', { cause: error })
+    }
+    const index = this.adoptTab(page, { activate: false })
+    const settled = (async () => {
+      await this.gotoOn(page, target)
+      return this.readTextOf(page)
+    })()
+    // The caller may never consume `settled` (e.g. the tool call aborts after
+    // starting the load); keep its rejection observed either way.
+    void settled.catch(() => undefined)
+    return { index, settled }
   }
 
   /**

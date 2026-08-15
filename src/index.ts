@@ -12,7 +12,7 @@ import z from '@deepseek-ai/schemastery'
 import type { Context } from '@deepseek-ai/cordis'
 import { PlaywrightBackend } from './playwright-backend.js'
 import { BrowserSession } from './session.js'
-import { BrowserSessions, createBrowserTools } from './tool.js'
+import { BrowserSessions, createBrowserTools, type JobsService } from './tool.js'
 
 /** Cordis plugin name used by loader diagnostics. */
 export const name = 'dsh-plugin-browser-use'
@@ -124,5 +124,8 @@ export function apply(ctx: Context, config: ResolvedConfig): void {
     navigationTimeoutMs: resolved.navigationTimeoutMs,
     actionTimeoutMs: resolved.actionTimeoutMs,
     maxTextChars: resolved.maxTextChars,
+    // The jobs registry is an optional deployment choice; resolve it at call
+    // time so loading order never matters.
+    getJobs: () => (ctx as { get?(name: string): unknown }).get?.('jobs') as JobsService | undefined,
   })
 }

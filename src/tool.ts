@@ -14,6 +14,23 @@ import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { BrowserError, BrowserSession, type BrowserBackend } from './session.js'
 import type { NavigationPolicy } from './policy.js'
 
+/**
+ * The structural slice of the `@deepseek-ai/dsh-jobs` registry this plugin
+ * uses. Typed locally so the jobs packages stay an optional deployment choice,
+ * not a dependency; the registry treats the `kind` as an opaque id namespace.
+ */
+export interface JobsService {
+  start(input: {
+    kind: string
+    label: string
+    owner?: unknown
+    run(): {
+      cancel(reason?: string): void
+      done: Promise<{ status: 'completed' | 'killed' | 'failed'; detail?: string; output?: string }>
+    }
+  }): string
+}
+
 /** Resolved deployment tunables the tools close over. */
 export interface BrowserToolOptions {
   /** Factory creating one session per owner (fresh config snapshot per owner). */
@@ -23,6 +40,8 @@ export interface BrowserToolOptions {
   readonly navigationTimeoutMs: number
   readonly actionTimeoutMs: number
   readonly maxTextChars: number
+  /** Resolve the optional jobs registry at call time; absent = background loads unavailable. */
+  readonly getJobs?: () => JobsService | undefined
 }
 
 /** Owner key for a call without an agent: all anonymous calls share one session. */
@@ -317,6 +336,65 @@ export function createBrowserTools(registry: BrowserSessions, options: BrowserTo
       const title = readingTitle(result.meta)
       return title === undefined ? undefined : { card: 'generic', title }
     },
+  })
+
+  const navigateBackground = defineTool({
+    name: 'browser_navigate_background',
+    description:
+      'Start loading a URL in a NEW tab that does not take focus, registered as a background job — the current tab stays usable while the page loads. Await the job (jobs tools), then browser_tab_select the returned index. Same navigation policy as browser_navigate.',
+    parameters: {
+      url: { type: 'string', required: true, description: 'The absolute http(s) URL to load in the background tab.' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          jobId: { type: 'string', required: true, description: 'Job id to await via the jobs tools.' },
+          index: { type: 'integer', required: true, description: 'The background tab index for browser_tab_select once loaded.' },
+          url: { type: 'string', required: true, description: 'The requested URL.' },
+        },
+      },
+      render: (_args, value) =>
+        textBlock(`Loading ${value.url} in background tab ${value.index} (job ${value.jobId}). Await the job, then browser_tab_select ${value.index}.`),
+      presentationMeta: (_args, value) => ({ url: value.url }),
+    },
+    timeoutMs: options.actionTimeoutMs + TIMEOUT_HEADROOM_MS,
+    async execute(args, exec) {
+      const jobs = options.getJobs?.()
+      if (jobs === undefined) {
+        throw new BrowserError(
+          'background loads unavailable: the jobs service is not loaded (add @deepseek-ai/dsh-jobs and @deepseek-ai/dsh-tool-jobs to the profile)',
+          'BROWSER_JOBS_UNAVAILABLE',
+        )
+      }
+      const owned = registry.for(ownerKeyOf(exec))
+      const started = await raceAbort(exec.signal, owned.run(session => session.startBackgroundLoad(args.url)))
+      let cancelled = false
+      const jobId = jobs.start({
+        kind: 'browser',
+        label: `load ${args.url}`,
+        ...exec.agent !== undefined ? { owner: exec.agent } : {},
+        run: () => ({
+          // Playwright's goto is not interruptible mid-flight; cancel marks
+          // the job and the page's own navigation timeout bounds settlement.
+          cancel: () => {
+            cancelled = true
+          },
+          done: started.settled.then(
+            reading => cancelled
+              ? { status: 'killed' as const, detail: 'cancelled (the load had already settled)' }
+              : { status: 'completed' as const, detail: `landed: ${reading.url}`, output: reading.text },
+            (error: unknown) => cancelled
+              ? { status: 'killed' as const }
+              : { status: 'failed' as const, detail: describeError(error) },
+          ),
+        }),
+      })
+      return { jobId, index: started.index, url: args.url }
+    },
+    presentCall: args => ({ card: 'generic', title: `Background load ${args.url}`, kind: 'fetch', rawInput: args.url }),
+    presentResult: () => undefined,
   })
 
   const readSnapshot = defineTool({
@@ -670,5 +748,5 @@ export function createBrowserTools(registry: BrowserSessions, options: BrowserTo
     presentResult: (_args, result) => (result.isError ? undefined : { card: 'generic', title: 'Browser closed' }),
   })
 
-  return [navigate, click, fill, readText, readSnapshot, screenshot, pdf, downloads, upload, tabNew, tabList, tabSelect, tabClose, close]
+  return [navigate, navigateBackground, click, fill, readText, readSnapshot, screenshot, pdf, downloads, upload, tabNew, tabList, tabSelect, tabClose, close]
 }
